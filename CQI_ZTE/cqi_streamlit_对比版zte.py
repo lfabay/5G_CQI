@@ -440,49 +440,74 @@ class CQI分析器:
                 }
         return 结果
 
-    def 阈值分析_按制式(self, 阈值数: int = 10) -> Dict:
-        """按网络制式分析不同CQI阈值下的速率分布
+    def CQI速率拐点分析_按制式(self, 分段数: int = 10) -> Dict:
+        """分析CQI与速率关系的拐点
         
-        优化点：
-        1. 使用分位数生成阈值，确保样本分布更均衡
-        2. 过滤掉样本过于不均衡的阈值（高于或低于阈值样本占比<10%）
-        3. 添加样本占比信息，便于评估阈值合理性
+        思路：
+        1. 将CQI优良率划分为多个区间（如每5%或10%一个区间）
+        2. 计算每个区间的平均速率
+        3. 找出速率增长斜率变化最大的点（拐点）
+        4. 拐点代表：超过此CQI值后，速率提升效果开始显著变化
+        
+        返回：每个制式的区间分析和拐点信息
         """
         分组数据 = self.按网络制式分组()
         结果 = {}
+        
         for 制式, 数据 in 分组数据.items():
-            总样本数 = len(数据)
-            
-            # 使用分位数生成阈值，范围在10%-90%之间，避免极端情况
-            分位数列表 = np.linspace(0.1, 0.9, 阈值数)
-            阈值列表 = [数据['CQI优良率'].quantile(q) for q in 分位数列表]
-            
-            结果列表 = []
-            for 阈值 in 阈值列表:
-                高于阈值数据 = 数据[数据['CQI优良率'] >= 阈值]
-                低于阈值数据 = 数据[数据['CQI优良率'] < 阈值]
+            if len(数据) < 分段数 * 5:  # 确保每个区间有足够样本
+                continue
                 
-                高于阈值样本数 = len(高于阈值数据)
-                低于阈值样本数 = len(低于阈值数据)
-                
-                # 过滤掉样本过于不均衡的情况（至少每边要有10%的样本）
-                if 高于阈值样本数 >= 总样本数 * 0.1 and 低于阈值样本数 >= 总样本数 * 0.1:
-                    高于阈值占比 = 高于阈值样本数 / 总样本数 * 100
-                    低于阈值占比 = 低于阈值样本数 / 总样本数 * 100
-                    
-                    结果列表.append({
-                        'CQI阈值': 阈值,
-                        '高于阈值下行速率': 高于阈值数据['下行用户平均速率(MBPS)'].mean(),
-                        '低于阈值下行速率': 低于阈值数据['下行用户平均速率(MBPS)'].mean(),
-                        '速率增益': 高于阈值数据['下行用户平均速率(MBPS)'].mean() - 低于阈值数据['下行用户平均速率(MBPS)'].mean(),
-                        '增益百分比': ((高于阈值数据['下行用户平均速率(MBPS)'].mean() - 低于阈值数据['下行用户平均速率(MBPS)'].mean()) / 低于阈值数据['下行用户平均速率(MBPS)'].mean() * 100),
-                        '高于阈值样本数': 高于阈值样本数,
-                        '低于阈值样本数': 低于阈值样本数,
-                        '高于阈值占比(%)': 高于阈值占比,
-                        '低于阈值占比(%)': 低于阈值占比
-                    })
+            # 将CQI优良率划分为等频区间（保证每个区间样本量均衡）
+            try:
+                数据['CQI区间'] = pd.qcut(数据['CQI优良率'], q=分段数, duplicates='drop')
+            except:
+                continue
             
-            结果[制式] = pd.DataFrame(结果列表)
+            # 计算每个区间的统计信息
+            区间统计 = 数据.groupby('CQI区间').agg({
+                'CQI优良率': ['mean', 'min', 'max', 'count'],
+                '下行用户平均速率(MBPS)': ['mean', 'std'],
+                '小区MR覆盖平均电平': 'mean',
+                '小区MR覆盖平均SINR': 'mean'
+            }).reset_index()
+            
+            # 展平列名
+            区间统计.columns = ['CQI区间', 'CQI均值', 'CQI最小值', 'CQI最大值', '样本数', 
+                             '平均速率', '速率标准差', '平均覆盖电平', '平均SINR']
+            
+            # 计算速率增长率（相对于前一个区间）
+            区间统计['速率增长(Mbps)'] = 区间统计['平均速率'].diff()
+            区间统计['速率增长率(%)'] = (区间统计['平均速率'].pct_change() * 100)
+            
+            # 找出拐点：速率增长斜率变化最大的点
+            if len(区间统计) > 2:
+                # 计算二阶导数（斜率变化）
+                区间统计['斜率变化'] = 区间统计['速率增长(Mbps)'].diff()
+                # 拐点：斜率变化最大的正向点
+                拐点索引 = 区间统计['斜率变化'].idxmax()
+                拐点数据 = 区间统计.loc[拐点索引]
+                
+                # 标记拐点
+                区间统计['是否拐点'] = False
+                区间统计.loc[拐点索引, '是否拐点'] = True
+            else:
+                拐点数据 = None
+            
+            # 找出关键阈值点
+            # 1. 速率提升开始显著的点（增长率>10%）
+            显著提升点 = 区间统计[区间统计['速率增长率(%)'] > 10]
+            
+            # 2. 速率趋于平稳的点（增长率<5%）
+            平稳点 = 区间统计[区间统计['速率增长率(%)'] < 5]
+            
+            结果[制式] = {
+                '区间统计': 区间统计,
+                '拐点': 拐点数据,
+                '显著提升点': 显著提升点,
+                '平稳点': 平稳点
+            }
+        
         return 结果
 
     def 贡献度分析_按制式(self) -> Dict:  运行 
@@ -1928,103 +1953,151 @@ def 渲染制式对比相关性矩阵(分析器: CQI分析器):
         st.markdown(总结内容, unsafe_allow_html=True)
 
 
-def 渲染制式对比阈值分析(分析器: CQI分析器):
-    """渲染阈值分析的网络制式对比"""
+def 渲染制式对比拐点分析(分析器: CQI分析器):
+    """渲染CQI-速率拐点分析"""
     st.markdown("""
     <div class="highlight">
-    <b>🎯 阈值分析说明：</b><br>
-    通过设置不同的CQI阈值，分析高于和低于该阈值的小区在速率上的差异。<br>
-    <b>优化说明：</b>阈值基于数据分位数生成（10%-90%），过滤掉样本过于不均衡的情况，确保每个区间都有足够的样本量进行对比分析。
+    <b>📈 CQI-速率拐点分析：</b><br>
+    将CQI优良率划分为多个区间，分析每个区间的平均速率变化，找出速率增长的<b>拐点</b>。<br>
+    <b>拐点含义：</b>超过此CQI值后，速率提升效果发生显著变化（可能开始加速或趋于平稳）。
     </div>
     """, unsafe_allow_html=True)
 
-    阈值数 = st.slider("选择阈值数量", 5, 20, 10, key="threshold_slider")
+    分段数 = st.slider("选择CQI区间数量", 5, 15, 10, key="inflection_slider")
 
-    with st.spinner('正在分析...'):
-        阈值分析结果 = 分析器.阈值分析_按制式(阈值数)
+    with st.spinner('正在分析拐点...'):
+        拐点分析结果 = 分析器.CQI速率拐点分析_按制式(分段数)
 
     col_n41, col_divider, col_n28 = st.columns([10, 1, 10])
 
+    # N41分析
     with col_n41:
-        st.markdown('<div class="network-type-header n41-header">📡 N41 - 阈值分析</div>', unsafe_allow_html=True)
-        if 'n41' in 阈值分析结果 and len(阈值分析结果['n41']) > 0:
-            # 选择关键列显示
-            显示列 = ['CQI阈值', '高于阈值下行速率', '低于阈值下行速率', '速率增益', 
-                     '增益百分比', '高于阈值样本数', '低于阈值样本数', '高于阈值占比(%)', '低于阈值占比(%)']
+        st.markdown('<div class="network-type-header n41-header">📡 N41 - 拐点分析</div>', unsafe_allow_html=True)
+        if 'n41' in 拐点分析结果:
+            区间统计 = 拐点分析结果['n41']['区间统计']
+            拐点 = 拐点分析结果['n41']['拐点']
+            
+            # 显示拐点信息
+            if 拐点 is not None:
+                st.success(f"🎯 **拐点CQI值：{拐点['CQI均值']:.1f}%**\n\n"
+                          f"• 拐点前平均速率：{区间统计.loc[拐点.name-1, '平均速率']:.2f} Mbps\n"
+                          f"• 拐点后平均速率：{拐点['平均速率']:.2f} Mbps\n"
+                          f"• 速率跃升：{拐点['速率增长(Mbps)']:.2f} Mbps ({拐点['速率增长率(%)']:.1f}%)\n"
+                          f"• 该区间样本数：{拐点['样本数']:.0f}")
+            
+            # 显示区间统计表
+            显示列 = ['CQI均值', 'CQI最小值', 'CQI最大值', '样本数', '平均速率', '速率增长(Mbps)', '速率增长率(%)']
             st.dataframe(
-                阈值分析结果['n41'][显示列].style.format({
-                    'CQI阈值': '{:.2f}%',
-                    '高于阈值下行速率': '{:.2f}',
-                    '低于阈值下行速率': '{:.2f}',
-                    '速率增益': '{:.2f}',
-                    '增益百分比': '{:.2f}%',
-                    '高于阈值占比(%)': '{:.1f}%',
-                    '低于阈值占比(%)': '{:.1f}%'
-                }),
+                区间统计[显示列].style.format({
+                    'CQI均值': '{:.1f}%',
+                    'CQI最小值': '{:.1f}%',
+                    'CQI最大值': '{:.1f}%',
+                    '平均速率': '{:.2f}',
+                    '速率增长(Mbps)': '{:.2f}',
+                    '速率增长率(%)': '{:.1f}%'
+                }).apply(lambda x: ['background-color: rgba(30, 144, 255, 0.3)' if x['是否拐点'] else '' 
+                                    for i, v in x.iterrows()], axis=1),
                 use_container_width=True
             )
-        else:
-            st.warning("N41数据样本分布不满足阈值分析条件（需要至少10%样本分布于阈值两侧）")
-
+            
+            # 绘制拐点图
             fig_n41 = go.Figure()
             fig_n41.add_trace(go.Scatter(
-                x=阈值分析结果['n41']['CQI阈值'],
-                y=阈值分析结果['n41']['速率增益'],
+                x=区间统计['CQI均值'],
+                y=区间统计['平均速率'],
                 mode='lines+markers',
-                name='速率增益',
+                name='平均速率',
                 line=dict(color='#1E90FF', width=2),
                 marker=dict(size=8)
             ))
+            
+            # 标记拐点
+            if 拐点 is not None:
+                fig_n41.add_trace(go.Scatter(
+                    x=[拐点['CQI均值']],
+                    y=[拐点['平均速率']],
+                    mode='markers',
+                    name='拐点',
+                    marker=dict(color='red', size=15, symbol='star')
+                ))
+            
             fig_n41.update_layout(
-                title='N41 - CQI阈值与速率增益关系',
-                xaxis_title='CQI阈值 (%)',
-                yaxis_title='速率增益 (Mbps)',
+                title='N41 - CQI与速率关系曲线',
+                xaxis_title='CQI优良率 (%)',
+                yaxis_title='平均下行速率 (Mbps)',
                 template='plotly_white',
-                height=400
+                height=400,
+                showlegend=True
             )
             st.plotly_chart(fig_n41, use_container_width=True)
+        else:
+            st.warning("N41数据不满足拐点分析条件")
 
     with col_divider:
         st.markdown('<div class="comparison-divider"></div>', unsafe_allow_html=True)
 
+    # N28分析
     with col_n28:
-        st.markdown('<div class="network-type-header n28-header">📡 N28 - 阈值分析</div>', unsafe_allow_html=True)
-        if 'n28' in 阈值分析结果 and len(阈值分析结果['n28']) > 0:
-            # 选择关键列显示
-            显示列 = ['CQI阈值', '高于阈值下行速率', '低于阈值下行速率', '速率增益', 
-                     '增益百分比', '高于阈值样本数', '低于阈值样本数', '高于阈值占比(%)', '低于阈值占比(%)']
+        st.markdown('<div class="network-type-header n28-header">📡 N28 - 拐点分析</div>', unsafe_allow_html=True)
+        if 'n28' in 拐点分析结果:
+            区间统计 = 拐点分析结果['n28']['区间统计']
+            拐点 = 拐点分析结果['n28']['拐点']
+            
+            # 显示拐点信息
+            if 拐点 is not None:
+                st.success(f"🎯 **拐点CQI值：{拐点['CQI均值']:.1f}%**\n\n"
+                          f"• 拐点前平均速率：{区间统计.loc[拐点.name-1, '平均速率']:.2f} Mbps\n"
+                          f"• 拐点后平均速率：{拐点['平均速率']:.2f} Mbps\n"
+                          f"• 速率跃升：{拐点['速率增长(Mbps)']:.2f} Mbps ({拐点['速率增长率(%)']:.1f}%)\n"
+                          f"• 该区间样本数：{拐点['样本数']:.0f}")
+            
+            # 显示区间统计表
+            显示列 = ['CQI均值', 'CQI最小值', 'CQI最大值', '样本数', '平均速率', '速率增长(Mbps)', '速率增长率(%)']
             st.dataframe(
-                阈值分析结果['n28'][显示列].style.format({
-                    'CQI阈值': '{:.2f}%',
-                    '高于阈值下行速率': '{:.2f}',
-                    '低于阈值下行速率': '{:.2f}',
-                    '速率增益': '{:.2f}',
-                    '增益百分比': '{:.2f}%',
-                    '高于阈值占比(%)': '{:.1f}%',
-                    '低于阈值占比(%)': '{:.1f}%'
-                }),
+                区间统计[显示列].style.format({
+                    'CQI均值': '{:.1f}%',
+                    'CQI最小值': '{:.1f}%',
+                    'CQI最大值': '{:.1f}%',
+                    '平均速率': '{:.2f}',
+                    '速率增长(Mbps)': '{:.2f}',
+                    '速率增长率(%)': '{:.1f}%'
+                }).apply(lambda x: ['background-color: rgba(255, 107, 107, 0.3)' if x['是否拐点'] else '' 
+                                    for i, v in x.iterrows()], axis=1),
                 use_container_width=True
             )
-
+            
+            # 绘制拐点图
             fig_n28 = go.Figure()
             fig_n28.add_trace(go.Scatter(
-                x=阈值分析结果['n28']['CQI阈值'],
-                y=阈值分析结果['n28']['速率增益'],
+                x=区间统计['CQI均值'],
+                y=区间统计['平均速率'],
                 mode='lines+markers',
-                name='速率增益',
+                name='平均速率',
                 line=dict(color='#FF6B6B', width=2),
                 marker=dict(size=8)
             ))
+            
+            # 标记拐点
+            if 拐点 is not None:
+                fig_n28.add_trace(go.Scatter(
+                    x=[拐点['CQI均值']],
+                    y=[拐点['平均速率']],
+                    mode='markers',
+                    name='拐点',
+                    marker=dict(color='red', size=15, symbol='star')
+                ))
+            
             fig_n28.update_layout(
-                title='N28 - CQI阈值与速率增益关系',
-                xaxis_title='CQI阈值 (%)',
-                yaxis_title='速率增益 (Mbps)',
+                title='N28 - CQI与速率关系曲线',
+                xaxis_title='CQI优良率 (%)',
+                yaxis_title='平均下行速率 (Mbps)',
                 template='plotly_white',
-                height=400
+                height=400,
+                showlegend=True
             )
             st.plotly_chart(fig_n28, use_container_width=True)
         else:
-            st.warning("N28数据样本分布不满足阈值分析条件（需要至少10%样本分布于阈值两侧）")
+            st.warning("N28数据不满足拐点分析条件")
 
     # 对比总结
     n41有数据 = 'n41' in 阈值分析结果 and len(阈值分析结果['n41']) > 0
@@ -3150,7 +3223,7 @@ def 渲染制式对比数据导出(分析器: CQI分析器):
     • N41_CQI对速率影响 / N28_CQI对速率影响
     • N41_影响CQI的因素 / N28_影响CQI的因素
     • N41_相关性矩阵 / N28_相关性矩阵
-    • N41_阈值分析 / N28_阈值分析
+    • N41_拐点分析 / N28_拐点分析
     • N41_贡献度分析 / N28_贡献度分析
     • N41_分组分析 / N28_分组分析
     • N41_覆盖系数统计 / N28_覆盖系数统计 ⭐新增
@@ -3213,12 +3286,12 @@ def 渲染制式对比数据导出(分析器: CQI分析器):
             if 'n28' in 相关性矩阵:
                 相关性矩阵['n28'].to_excel(writer, sheet_name='N28_相关性矩阵')
             
-            # 7. 阈值分析
-            阈值分析结果 = 分析器.阈值分析_按制式(10)
-            if 'n41' in 阈值分析结果:
-                阈值分析结果['n41'].to_excel(writer, sheet_name='N41_阈值分析', index=False)
-            if 'n28' in 阈值分析结果:
-                阈值分析结果['n28'].to_excel(writer, sheet_name='N28_阈值分析', index=False)
+            # 7. 拐点分析
+            拐点分析结果 = 分析器.CQI速率拐点分析_按制式(10)
+            if 'n41' in 拐点分析结果:
+                拐点分析结果['n41']['区间统计'].to_excel(writer, sheet_name='N41_拐点分析', index=False)
+            if 'n28' in 拐点分析结果:
+                拐点分析结果['n28']['区间统计'].to_excel(writer, sheet_name='N28_拐点分析', index=False)
             
             # 8. 贡献度分析
             贡献度结果 = 分析器.贡献度分析_按制式()
@@ -3376,12 +3449,12 @@ def main():
         # 🎯 深度关联分析 - 使用子标签组织3个原页面
         st.markdown('<p class="sub-header">🎯 深度关联分析 - N41 vs N28 对比</p>', unsafe_allow_html=True)
         深度子标签 = st.tabs([
-            "🎯 阈值分析",
+            "📈 拐点分析",
             "📊 贡献度分析",
             "📈 分组分析"
         ])
         with 深度子标签[0]:
-            渲染制式对比阈值分析(分析器)
+            渲染制式对比拐点分析(分析器)
         with 深度子标签[1]:
             渲染制式对比贡献度分析(分析器)
         with 深度子标签[2]:
