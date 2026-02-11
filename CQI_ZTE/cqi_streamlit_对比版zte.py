@@ -510,7 +510,7 @@ class CQI分析器:
         
         return 结果
 
-    def 贡献度分析_按制式(self) -> Dict:  运行 
+    def 贡献度分析_按制式(self) -> Dict:
         """按网络制式分析各指标对CQI的贡献度"""
         影响指标 = [
             '小区MR覆盖平均电平',
@@ -1987,6 +1987,11 @@ def 渲染制式对比拐点分析(分析器: CQI分析器):
             
             # 显示区间统计表
             显示列 = ['CQI均值', 'CQI最小值', 'CQI最大值', '样本数', '平均速率', '速率增长(Mbps)', '速率增长率(%)']
+            
+            # 如果有拐点，在表格中标记
+            if 拐点 is not None:
+                st.info(f"🎯 拐点位于第 {拐点.name + 1} 行 (CQI均值: {拐点['CQI均值']:.1f}%)")
+            
             st.dataframe(
                 区间统计[显示列].style.format({
                     'CQI均值': '{:.1f}%',
@@ -1995,8 +2000,7 @@ def 渲染制式对比拐点分析(分析器: CQI分析器):
                     '平均速率': '{:.2f}',
                     '速率增长(Mbps)': '{:.2f}',
                     '速率增长率(%)': '{:.1f}%'
-                }).apply(lambda x: ['background-color: rgba(30, 144, 255, 0.3)' if x['是否拐点'] else '' 
-                                    for i, v in x.iterrows()], axis=1),
+                }),
                 use_container_width=True
             )
             
@@ -2053,6 +2057,11 @@ def 渲染制式对比拐点分析(分析器: CQI分析器):
             
             # 显示区间统计表
             显示列 = ['CQI均值', 'CQI最小值', 'CQI最大值', '样本数', '平均速率', '速率增长(Mbps)', '速率增长率(%)']
+            
+            # 如果有拐点，在表格中标记
+            if 拐点 is not None:
+                st.info(f"🎯 拐点位于第 {拐点.name + 1} 行 (CQI均值: {拐点['CQI均值']:.1f}%)")
+            
             st.dataframe(
                 区间统计[显示列].style.format({
                     'CQI均值': '{:.1f}%',
@@ -2061,8 +2070,7 @@ def 渲染制式对比拐点分析(分析器: CQI分析器):
                     '平均速率': '{:.2f}',
                     '速率增长(Mbps)': '{:.2f}',
                     '速率增长率(%)': '{:.1f}%'
-                }).apply(lambda x: ['background-color: rgba(255, 107, 107, 0.3)' if x['是否拐点'] else '' 
-                                    for i, v in x.iterrows()], axis=1),
+                }),
                 use_container_width=True
             )
             
@@ -2127,11 +2135,7 @@ def 渲染制式对比拐点分析(分析器: CQI分析器):
         总结内容 += "</div>"
         st.markdown(总结内容, unsafe_allow_html=True)
     else:
-        st.warning("⚠️ 当前数据不满足阈值分析条件。可能原因：数据样本分布过于集中，建议检查CQI优良率数据分布或增加样本量。")
-            最大增益_n41['CQI阈值'], 最大增益_n41['速率增益'], 最大增益_n41['增益百分比'],
-            最大增益_n28['CQI阈值'], 最大增益_n28['速率增益'], 最大增益_n28['增益百分比'],
-            'N41' if 最大增益_n41['速率增益'] > 最大增益_n28['速率增益'] else 'N28'
-        ), unsafe_allow_html=True)
+        st.warning("⚠️ 当前数据不满足分析条件。可能原因：数据样本分布过于集中，建议检查CQI优良率数据分布或增加样本量。")
 
 
 def 渲染制式对比贡献度分析(分析器: CQI分析器):
