@@ -252,66 +252,6 @@ class CQI分析器:
             
         return 结果
 
-    def 识别异常小区_按制式(self, 阈值倍数: float = 1.5) -> Dict:
-        """识别CQI与速率不匹配的异常小区"""
-        分组数据 = self.按网络制式分组()
-        结果 = {}
-        
-        for 制式, 数据 in 分组数据.items():
-            if 'CQI优良率' not in 数据.columns or '下行用户平均速率(MBPS)' not in 数据.columns:
-                continue
-            
-            # 检查小区标识列，使用"小区中文名"或"GNODEB"
-            小区标识列 = None
-            if '小区中文名' in 数据.columns:
-                小区标识列 = '小区中文名'
-            elif 'GNODEB' in 数据.columns:
-                小区标识列 = 'GNODEB'
-            else:
-                # 如果都没有，使用索引
-                数据 = 数据.copy()
-                数据['小区标识'] = 数据.index
-                小区标识列 = '小区标识'
-            
-            # 移除NaN
-            有效数据 = 数据[[小区标识列, 'CQI优良率', '下行用户平均速率(MBPS)', '上行用户平均速率(MBPS)']].dropna()
-            if len(有效数据) < 10:
-                continue
-            
-            # 计算Z分数（标准化），处理标准差为0的情况
-            cqi_std = 有效数据['CQI优良率'].std()
-            dl_std = 有效数据['下行用户平均速率(MBPS)'].std()
-            
-            if cqi_std == 0 or dl_std == 0:
-                continue  # 标准差为0，无法计算Z分数，跳过
-            
-            有效数据['CQI_Z'] = (有效数据['CQI优良率'] - 有效数据['CQI优良率'].mean()) / cqi_std
-            有效数据['下行Z'] = (有效数据['下行用户平均速率(MBPS)'] - 有效数据['下行用户平均速率(MBPS)'].mean()) / dl_std
-            
-            # 识别高CQI低速率小区（CQI-Z > 阈值 且 下行Z < -阈值）
-            高CQI低速率 = 有效数据[(有效数据['CQI_Z'] > 阈值倍数) & (有效数据['下行Z'] < -阈值倍数)].copy()
-            高CQI低速率 = 高CQI低速率.sort_values('下行用户平均速率(MBPS)', ascending=True).head(10)
-            
-            # 识别低CQI高速率小区（CQI-Z < -阈值 且 下行Z > 阈值）
-            低CQI高速率 = 有效数据[(有效数据['CQI_Z'] < -阈值倍数) & (有效数据['下行Z'] > 阈值倍数)].copy()
-            低CQI高速率 = 低CQI高速率.sort_values('下行用户平均速率(MBPS)', ascending=False).head(10)
-            
-            # 统一列名，将第一列重命名为"小区名称"以便显示
-            if len(高CQI低速率) > 0:
-                第一列名 = 高CQI低速率.columns[0]
-                高CQI低速率 = 高CQI低速率.rename(columns={第一列名: '小区名称'})
-            
-            if len(低CQI高速率) > 0:
-                第一列名 = 低CQI高速率.columns[0]
-                低CQI高速率 = 低CQI高速率.rename(columns={第一列名: '小区名称'})
-            
-            结果[制式] = {
-                '高CQI低速率': 高CQI低速率,
-                '低CQI高速率': 低CQI高速率
-            }
-            
-        return 结果
-
     def 速率分布对比_按制式(self) -> Dict:
         """对比不同CQI等级的速率分布"""
         分组数据 = self.按网络制式分组()
@@ -1571,69 +1511,6 @@ def 渲染制式对比速率影响(分析器: CQI分析器):
                 st.plotly_chart(fig_分布_n28, use_container_width=True)
             else:
                 st.info("N28数据不可用")
-
-    # ========== 新增：异常小区识别 ==========
-    st.markdown("---")
-    st.markdown('<p class="sub-header">🔍 异常小区识别</p>', unsafe_allow_html=True)
-    st.info("💡 **说明**：识别CQI与速率不匹配的异常小区（阈值=1.5倍标准差），可能存在干扰、配置问题或特殊场景")
-
-    异常小区 = 分析器.识别异常小区_按制式(阈值倍数=1.5)
-
-    if 异常小区:
-        col_n41_异常, col_n28_异常 = st.columns(2)
-        
-        with col_n41_异常:
-            if 'n41' in 异常小区:
-                st.markdown('<div class="network-type-header n41-header">📡 N41 - 异常小区</div>', unsafe_allow_html=True)
-                
-                # 高CQI低速率
-                高低 = 异常小区['n41']['高CQI低速率']
-                if len(高低) > 0:
-                    st.warning(f"⚠️ **高CQI低速率小区** (共{len(高低)}个): CQI高但速率低，可能存在干扰、拥塞或优化过度")
-                    显示列 = ['小区名称', 'CQI优良率', '下行用户平均速率(MBPS)', '上行用户平均速率(MBPS)']
-                    st.dataframe(高低[显示列], use_container_width=True, hide_index=True)
-                else:
-                    st.success("✅ 未发现高CQI低速率小区")
-                
-                st.markdown("---")
-                
-                # 低CQI高速率
-                低高 = 异常小区['n41']['低CQI高速率']
-                if len(低高) > 0:
-                    st.info("💡 **低CQI高速率小区** (共{}个): CQI低但速率高，可能存在测试方法问题、数据采集异常或特殊场景".format(len(低高)))
-                    显示列 = ['小区名称', 'CQI优良率', '下行用户平均速率(MBPS)', '上行用户平均速率(MBPS)']
-                    st.dataframe(低高[显示列], use_container_width=True, hide_index=True)
-                else:
-                    st.success("✅ 未发现低CQI高速率小区")
-            else:
-                st.info("N41数据不可用")
-        
-        with col_n28_异常:
-            if 'n28' in 异常小区:
-                st.markdown('<div class="network-type-header n28-header">📡 N28 - 异常小区</div>', unsafe_allow_html=True)
-                
-                # 高CQI低速率
-                高低 = 异常小区['n28']['高CQI低速率']
-                if len(高低) > 0:
-                    st.warning(f"⚠️ **高CQI低速率小区** (共{len(高低)}个): CQI高但速率低，可能存在干扰、拥塞或优化过度")
-                    显示列 = ['小区名称', 'CQI优良率', '下行用户平均速率(MBPS)', '上行用户平均速率(MBPS)']
-                    st.dataframe(高低[显示列], use_container_width=True, hide_index=True)
-                else:
-                    st.success("✅ 未发现高CQI低速率小区")
-                
-                st.markdown("---")
-                
-                # 低CQI高速率
-                低高 = 异常小区['n28']['低CQI高速率']
-                if len(低高) > 0:
-                    st.info("💡 **低CQI高速率小区** (共{}个): CQI低但速率高，可能存在测试方法问题、数据采集异常或特殊场景".format(len(低高)))
-                    显示列 = ['小区名称', 'CQI优良率', '下行用户平均速率(MBPS)', '上行用户平均速率(MBPS)']
-                    st.dataframe(低高[显示列], use_container_width=True, hide_index=True)
-                else:
-                    st.success("✅ 未发现低CQI高速率小区")
-            else:
-                st.info("N28数据不可用")
-
 
 def 渲染制式对比影响因素(分析器: CQI分析器):
     """渲染影响CQI因素的网络制式对比"""
