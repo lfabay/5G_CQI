@@ -2690,12 +2690,36 @@ def 渲染制式对比多维度交叉分析(分析器: CQI分析器):
         
         三维数据 = 分析器.三维散点图分析_按制式()
         
+        # 添加样本数选择滑块
+        总样本数_n41 = len(三维数据['n41']) if 'n41' in 三维数据 else 0
+        总样本数_n28 = len(三维数据['n28']) if 'n28' in 三维数据 else 0
+        最大样本数 = max(总样本数_n41, 总样本数_n28)
+        
+        if 最大样本数 > 0:
+            样本数选项 = [2000, 4000, 6000, 8000, 10000]
+            可选样本数 = [x for x in 样本数选项 if x <= 最大样本数] + [最大样本数]
+            可选样本数 = sorted(list(set(可选样本数)))
+            
+            if len(可选样本数) > 1:
+                选择样本数 = st.select_slider(
+                    "选择散点图样本数量（过多样本可能导致浏览器卡顿）",
+                    options=可选样本数,
+                    value=min(2000, 最大样本数),
+                    key="scatter_sample_size"
+                )
+            else:
+                选择样本数 = 最大样本数
+                st.info(f"数据样本共 {最大样本数} 个，将显示全部样本")
+        else:
+            选择样本数 = 2000
+        
         col_n41, col_divider, col_n28 = st.columns([10, 1, 10])
         
         with col_n41:
             st.markdown('<div class="network-type-header n41-header">📡 N41 - 三维关系</div>', unsafe_allow_html=True)
             if 'n41' in 三维数据 and len(三维数据['n41']) > 0:
-                数据 = 三维数据['n41'].sample(min(2000, len(三维数据['n41']))).copy()
+                st.caption(f"总样本数: {len(三维数据['n41'])} | 显示样本数: {min(选择样本数, len(三维数据['n41']))}")
+                数据 = 三维数据['n41'].sample(min(选择样本数, len(三维数据['n41']))).copy()
 
                 # 确保size列为正数（plotly要求size必须>0）
                 数据['速率大小'] = 数据['下行用户平均速率(MBPS)'].clip(lower=0.1)
@@ -2734,7 +2758,8 @@ def 渲染制式对比多维度交叉分析(分析器: CQI分析器):
         with col_n28:
             st.markdown('<div class="network-type-header n28-header">📡 N28 - 三维关系</div>', unsafe_allow_html=True)
             if 'n28' in 三维数据 and len(三维数据['n28']) > 0:
-                数据 = 三维数据['n28'].sample(min(2000, len(三维数据['n28']))).copy()
+                st.caption(f"总样本数: {len(三维数据['n28'])} | 显示样本数: {min(选择样本数, len(三维数据['n28']))}")
+                数据 = 三维数据['n28'].sample(min(选择样本数, len(三维数据['n28']))).copy()
 
                 # 确保size列为正数（plotly要求size必须>0）
                 数据['速率大小'] = 数据['下行用户平均速率(MBPS)'].clip(lower=0.1)
