@@ -949,6 +949,20 @@ def 生成综合报告(分析器: CQI分析器) -> str:
 
 def 渲染制式对比概览(分析器: CQI分析器):
     """渲染概览页面的网络制式对比"""
+    st.markdown("""
+    <div class="highlight">
+    <b>🏠 数据概览说明：</b><br>
+    对比N41和N28两种网络制式的整体性能表现，提供快速了解网络现状的入口。<br><br>
+    <b>📊 展示内容：</b><br>
+    • <b>关键指标对比</b>：样本数、CQI优良率、上下行速率等核心KPI<br>
+    • <b>覆盖区域分析</b>：按城市/农村/县城维度对比网络质量<br>
+    • <b>CQI分布</b>：CQI优良率的分布直方图对比<br>
+    • <b>综合报告</b>：一键生成包含全部分析内容的综合报告<br>
+    <br>
+    <b>💡 使用建议：</b>先通过概览页面了解整体情况，再深入具体标签页进行详细分析
+    </div>
+    """, unsafe_allow_html=True)
+    
     统计摘要 = 分析器.获取统计摘要_按制式()
 
     # 检查是否有网络制式分组
@@ -959,7 +973,7 @@ def 渲染制式对比概览(分析器: CQI分析器):
     # ⭐ 新增：一键生成综合报告按钮
     col_title, col_button = st.columns([3, 1])
     with col_title:
-        st.markdown('<p class="sub-header">🏠 概览 - N41 vs N28 网络制式对比</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sub-header">📈 关键指标对比</p>', unsafe_allow_html=True)
     with col_button:
         if st.button("📋 一键生成综合报告", type="primary", use_container_width=True):
             with st.spinner('正在生成综合报告...'):
@@ -1548,6 +1562,24 @@ def 渲染制式对比速率影响(分析器: CQI分析器):
 
 def 渲染制式对比影响因素(分析器: CQI分析器):
     """渲染影响CQI因素的网络制式对比"""
+    st.markdown("""
+    <div class="highlight">
+    <b>🎯 影响CQI的因素分析说明：</b><br>
+    通过相关性分析，识别影响CQI优良率的关键网络指标，明确优化方向。<br><br>
+    <b>📊 分析方法：</b><br>
+    • <b>皮尔逊相关系数</b>：衡量各指标与CQI的线性相关程度，范围-1到+1<br>
+    • <b>相关性强度</b>：|r|>0.7为强相关，0.3-0.7为中等相关，<0.3为弱相关<br>
+    • <b>显著性检验</b>：P值<0.05表示相关性具有统计显著性<br>
+    <br>
+    <b>📈 分析指标：</b><br>
+    • 覆盖类：覆盖电平、覆盖系数、重叠覆盖比例<br>
+    • 干扰类：SINR、上行干扰电平<br>
+    • 资源类：PRB利用率、TA（距离）<br>
+    <br>
+    <b>💡 应用价值：</b>找出对CQI影响最大的因素，优先投入优化资源
+    </div>
+    """, unsafe_allow_html=True)
+    
     影响结果 = 分析器.分析影响CQI的指标_按制式()
 
     col_n41, col_divider, col_n28 = st.columns([10, 1, 10])
@@ -1683,12 +1715,23 @@ def 渲染制式对比影响因素(分析器: CQI分析器):
 
 def 渲染制式对比相关性矩阵(分析器: CQI分析器):
     """渲染相关性可视化的网络制式对比（包含散点图和相关性矩阵）"""
-    
-    st.info("""
-    📊 **相关性可视化说明**：结合散点图和相关性矩阵，全面展示指标间的关系
-    • 散点图：展示具体数据分布和趋势，可直观看到异常值
-    • 相关性矩阵：展示所有指标间的相关性强度，数值范围[-1, 1]
-    """)
+    st.markdown("""
+    <div class="highlight">
+    <b>🔗 相关性可视化分析说明：</b><br>
+    通过散点图和相关性矩阵，全面展示各网络指标间的相关关系。<br><br>
+    <b>📊 可视化组件：</b><br>
+    • <b>散点图</b>：展示两个指标的具体数据分布和趋势，直观识别异常值和聚集模式<br>
+    • <b>相关性矩阵热力图</b>：展示所有指标间的相关性强度，颜色越深表示相关性越强<br>
+    <br>
+    <b>📈 相关系数解读：</b><br>
+    • <b>+1</b>：完全正相关（一个指标增加，另一个必然增加）<br>
+    • <b>-1</b>：完全负相关（一个指标增加，另一个必然减少）<br>
+    • <b>0</b>：无线性相关<br>
+    • <b>绝对值>0.7</b>：强相关 | <b>0.3-0.7</b>：中等相关 | <b><0.3</b>：弱相关<br>
+    <br>
+    <b>💡 应用场景：</b>识别指标间隐藏的关系，如覆盖电平与CQI的关联、SINR与速率的关联等
+    </div>
+    """, unsafe_allow_html=True)
     
     列名列表 = [
         'CQI优良率',
@@ -2624,7 +2667,21 @@ def 渲染制式对比多维度交叉分析(分析器: CQI分析器):
     
     # ========== 1. 三维散点图分析 ==========
     with 子标签[0]:
-        st.markdown('<p class="sub-header">📊 三维散点图分析 - 覆盖×SINR×CQI/速率</p>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="highlight">
+        <b>📊 三维散点图分析说明：</b><br>
+        通过三维散点图展示覆盖电平、SINR与CQI/速率之间的关系，识别网络质量的分布模式。<br><br>
+        <b>📈 图表解读：</b><br>
+        • <b>X轴</b>：覆盖电平（dBm），值越大表示信号越强<br>
+        • <b>Y轴</b>：SINR（dB），值越大表示干扰越小、信号质量越好<br>
+        • <b>颜色</b>：CQI优良率，颜色越暖（红/黄）表示CQI越好<br>
+        • <b>点大小</b>：下行速率，点越大表示速率越高<br>
+        <br>
+        <b>💡 分析价值：</b>直观展示覆盖、干扰、CQI、速率四者的关系，识别异常分布模式
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<p class="sub-header">📊 三维散点图 - 覆盖×SINR×CQI/速率</p>', unsafe_allow_html=True)
         
         三维数据 = 分析器.三维散点图分析_按制式()
         
@@ -2730,7 +2787,21 @@ def 渲染制式对比多维度交叉分析(分析器: CQI分析器):
     
     # ========== 2. 四象限分析 ==========
     with 子标签[1]:
-        st.markdown('<p class="sub-header">🎯 四象限分析 - 覆盖×SINR矩阵</p>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="highlight">
+        <b>🎯 四象限分析说明：</b><br>
+        通过覆盖电平和SINR两个维度，将小区划分为四个象限，识别不同网络质量特征的小区群体。<br><br>
+        <b>📊 四象限定义：</b><br>
+        • <b>第一象限（好覆盖+好SINR）</b>：覆盖>-90dBm且SINR>15dB，网络质量优良<br>
+        • <b>第二象限（差覆盖+好SINR）</b>：覆盖≤-90dBm但SINR>15dB，需增强覆盖<br>
+        • <b>第三象限（差覆盖+差SINR）</b>：覆盖≤-90dBm且SINR≤15dB，需综合优化<br>
+        • <b>第四象限（好覆盖+差SINR）</b>：覆盖>-90dBm但SINR≤15dB，存在干扰问题<br>
+        <br>
+        <b>💡 应用价值：</b>快速定位问题小区类型，制定针对性优化策略
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<p class="sub-header">🎯 四象限矩阵 - 覆盖×SINR</p>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         with col1:
