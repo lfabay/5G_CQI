@@ -3273,8 +3273,11 @@ def main():
 
     st.markdown("---")
 
-    # 使用新的数据源文件
-    文件路径 = r"h:\pycode\Self\code880_CQI分析\CQI_ZTE\CQI关联指标_中兴.xlsx"
+    # 使用新的数据源文件（支持本地和云端部署）
+    import os
+    # 获取当前文件所在目录
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    文件路径 = os.path.join(current_dir, "CQI关联指标_中兴.xlsx")
 
     # 创建分析器
     分析器 = CQI分析器(文件路径)
