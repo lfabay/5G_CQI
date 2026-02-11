@@ -2704,7 +2704,7 @@ def 渲染制式对比多维度交叉分析(分析器: CQI分析器):
                 选择样本数 = st.select_slider(
                     "选择散点图样本数量（过多样本可能导致浏览器卡顿）",
                     options=可选样本数,
-                    value=min(2000, 最大样本数),
+                    value=min(4000, 最大样本数),
                     key="scatter_sample_size"
                 )
             else:
