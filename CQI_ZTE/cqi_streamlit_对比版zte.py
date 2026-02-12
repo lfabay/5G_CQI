@@ -34,6 +34,86 @@ st.markdown("""
         -webkit-text-fill-color: transparent;
         background-clip: text;
     }
+    .header-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 30px 20px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+    .header-container::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+        animation: shimmer 15s infinite linear;
+    }
+    @keyframes shimmer {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    .header-title {
+        font-size: 2.8rem;
+        font-weight: 800;
+        color: #ffffff;
+        text-align: center;
+        margin: 0;
+        padding: 10px 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        position: relative;
+        z-index: 1;
+    }
+    .header-subtitle {
+        font-size: 1.3rem;
+        color: #f0f0f0;
+        text-align: center;
+        margin: 10px 0 0 0;
+        font-weight: 400;
+        letter-spacing: 2px;
+        position: relative;
+        z-index: 1;
+    }
+    .header-badges {
+        display: flex;
+        justify-content: center;
+        gap: 15px;
+        margin-top: 20px;
+        position: relative;
+        z-index: 1;
+        flex-wrap: wrap;
+    }
+    .badge {
+        background: rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(10px);
+        padding: 8px 20px;
+        border-radius: 20px;
+        color: #ffffff;
+        font-size: 0.95rem;
+        font-weight: 500;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .badge-n41 {
+        background: rgba(30, 144, 255, 0.3);
+        border-color: rgba(30, 144, 255, 0.5);
+    }
+    .badge-n28 {
+        background: rgba(255, 107, 107, 0.3);
+        border-color: rgba(255, 107, 107, 0.5);
+    }
+    .header-divider {
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+        margin: 20px auto;
+        width: 80%;
+    }
     .sub-header {
         font-size: 1.5rem;
         font-weight: bold;
@@ -173,16 +253,21 @@ class CQI分析器:
         return 分组结果
 
     def 判断相关性强度(self, 相关系数: float) -> str:
+        """判断相关性强度 - 与文档说明一致的标准
+        
+        统计学常用标准：
+        - |r| < 0.3: 弱相关
+        - 0.3 <= |r| < 0.7: 中等相关  
+        - |r| >= 0.7: 强相关
+        """
         if 相关系数 < 0.1:
             return "极弱"
         elif 相关系数 < 0.3:
             return "弱"
-        elif 相关系数 < 0.5:
-            return "中等"
         elif 相关系数 < 0.7:
-            return "强"
+            return "中等"
         else:
-            return "极强"
+            return "强"
 
     def 计算相关性_按制式(self, 字段1: str, 字段2: str, 数据子集: pd.DataFrame = None) -> Dict:
         if 数据子集 is None:
@@ -269,7 +354,7 @@ class CQI分析器:
             有效数据['CQI等级'] = pd.cut(
                 有效数据['CQI优良率'],
                 bins=[0, 60, 85, 100],
-                labels=['低CQI(<60%)', '中CQI(60-85%)', '高CQI(>85%)']
+                labels=['低(<60%)', '中(60-85%)', '高(>85%)']
             )
             
             # 按等级统计
@@ -451,7 +536,14 @@ class CQI分析器:
         return 结果
 
     def 贡献度分析_按制式(self) -> Dict:
-        """按网络制式分析各指标对CQI的贡献度"""
+        """按网络制式分析各指标对CQI的贡献度 - 相对贡献度版本
+        
+        算法说明：
+        1. 计算各指标与CQI的相关系数
+        2. 使用相关系数绝对值作为权重基础
+        3. 归一化处理得到相对贡献度（所有指标贡献度之和=100%）
+        4. 计算累积贡献度用于帕累托分析
+        """
         影响指标 = [
             '小区MR覆盖平均电平',
             '小区MR覆盖平均SINR',
@@ -459,52 +551,67 @@ class CQI分析器:
             '小区上行平均干扰电平',
             '上行PRB平均利用率',
             '下行PRB平均利用率',
-            '覆盖系数',  # ⭐新增
-            '重叠覆盖采样点比例(%)'  # ⭐新增
+            '覆盖系数',
+            '重叠覆盖采样点比例(%)'
         ]
         分组数据 = self.按网络制式分组()
         结果 = {}
+        
         for 制式, 数据 in 分组数据.items():
             贡献度列表 = []
+            
             for 指标 in 影响指标:
-                if 指标 in 数据.columns:
-                    # 删除包含NaN的行
-                    有效数据 = 数据[[指标, 'CQI优良率']].dropna()
+                if 指标 not in 数据.columns:
+                    continue
                     
-                    # 检查有效数据量是否足够
-                    if len(有效数据) < 3:
-                        贡献度列表.append({
-                            '指标': 指标,
-                            '相关系数': None,
-                            '贡献度(%)': 0
-                        })
-                        continue
+                有效数据 = 数据[[指标, 'CQI优良率']].dropna()
+                
+                if len(有效数据) < 3:
+                    continue
+                
+                try:
+                    相关系数, p值 = stats.pearsonr(有效数据[指标], 有效数据['CQI优良率'])
                     
-                    try:
-                        相关系数, _ = stats.pearsonr(有效数据[指标], 有效数据['CQI优良率'])
-                        贡献度 = abs(相关系数) * 100
-                        贡献度列表.append({
-                            '指标': 指标,
-                            '相关系数': 相关系数,
-                            '贡献度(%)': 贡献度
-                        })
-                    except Exception:
-                        贡献度列表.append({
-                            '指标': 指标,
-                            '相关系数': None,
-                            '贡献度(%)': 0
-                        })
+                    # ⭐ 相对贡献度：使用相关系数绝对值作为权重基础
+                    权重 = abs(相关系数)
+                    
+                    贡献度列表.append({
+                        '指标': 指标,
+                        '相关系数': 相关系数,
+                        'P值': p值,
+                        '显著性': '显著' if p值 < 0.05 else '不显著',
+                        '相关性强度': self.判断相关性强度(abs(相关系数)),
+                        '权重': 权重  # 临时存储，用于后续计算
+                    })
+                except Exception:
+                    continue
             
-            # 过滤掉贡献度为0的项再排序
-            贡献度列表 = [x for x in 贡献度列表 if x['贡献度(%)'] > 0]
-            贡献度列表.sort(key=lambda x: x['贡献度(%)'], reverse=True)
+            if len(贡献度列表) == 0:
+                结果[制式] = {'贡献度列表': [], '总权重': 0, '指标数': 0}
+                continue
             
-            总贡献度 = sum(x['贡献度(%)'] for x in 贡献度列表)
+            # ⭐ 计算相对贡献度（权重归一化）
+            总权重 = sum(x['权重'] for x in 贡献度列表)
+            
+            # 按权重排序
+            贡献度列表.sort(key=lambda x: x['权重'], reverse=True)
+            
+            # 计算相对贡献度和累积贡献度
             累积贡献度 = 0
             for 项 in 贡献度列表:
-                累积贡献度 += 项['贡献度(%)']
-                项['累积贡献度(%)'] = 累积贡献度 / 总贡献度 * 100 if 总贡献度 > 0 else 0
-            结果[制式] = {'贡献度列表': 贡献度列表, '总贡献度': 总贡献度}
+                相对贡献度 = (项['权重'] / 总权重) * 100 if 总权重 > 0 else 0
+                累积贡献度 += 相对贡献度
+                
+                项['贡献度(%)'] = round(相对贡献度, 2)
+                项['累积贡献度(%)'] = round(累积贡献度, 2)
+                del 项['权重']  # 删除临时字段
+            
+            结果[制式] = {
+                '贡献度列表': 贡献度列表,
+                '总权重': 总权重,
+                '指标数': len(贡献度列表)
+            }
+        
         return 结果
 
     def 按CQI分组分析_按制式(self, 分组数: int = 5) -> Dict:
@@ -875,6 +982,22 @@ def 生成综合报告(分析器: CQI分析器) -> str:
         报告.append(f"  CQI差异: {abs(n41['平均CQI'] - n28['平均CQI']):.2f}% ({'N41更优' if n41['平均CQI'] > n28['平均CQI'] else 'N28更优'})")
         报告.append("")
     
+    # 1.5 数据质量评估
+    try:
+        分组数据 = 分析器.按网络制式分组()
+        if len(分组数据) > 0:
+            报告.append("【二、数据质量评估】")
+            总样本数 = sum(len(数据) for 数据 in 分组数据.values())
+            报告.append(f"  总样本数: {总样本数:,}")
+            for 制式, 数据 in 分组数据.items():
+                缺失率 = 数据.isnull().mean().mean() * 100
+                报告.append(f"  {制式.upper()}: {len(数据):,}条, 平均缺失率: {缺失率:.2f}%")
+            报告.append("")
+    except Exception as e:
+        报告.append("【二、数据质量评估】")
+        报告.append(f"  评估失败: {str(e)}")
+        报告.append("")
+    
     # 2. CQI和速率的影响关系
     try:
         速率影响 = 分析器.分析CQI对速率影响_按制式()
@@ -882,7 +1005,7 @@ def 生成综合报告(分析器: CQI分析器) -> str:
         分布数据 = 分析器.速率分布对比_按制式()
         
         if 'n41' in 速率影响 or 'n28' in 速率影响:
-            报告.append("【二、CQI和速率的影响关系】")
+            报告.append("【三、CQI和速率的影响关系】")
             
             # 2.1 CQI与速率相关性对比
             if 'n41' in 速率影响 and 'n28' in 速率影响:
@@ -895,11 +1018,16 @@ def 生成综合报告(分析器: CQI分析器) -> str:
                         n28_sig = 速率影响['n28'][速率]['显著性']
                         报告.append(f"    {速率}: N41 r={n41_r:.4f}({n41_sig}), N28 r={n28_r:.4f}({n28_sig})")
                 
-                # 找出相关性最强的指标
-                n41最强 = max(速率影响['n41'].items(), key=lambda x: abs(x[1]['相关系数']))
-                n28最强 = max(速率影响['n28'].items(), key=lambda x: abs(x[1]['相关系数']))
-                报告.append(f"    → N41与CQI相关性最强: {n41最强[0]} (r={n41最强[1]['相关系数']:.4f})")
-                报告.append(f"    → N28与CQI相关性最强: {n28最强[0]} (r={n28最强[1]['相关系数']:.4f})")
+                # 找出相关性最强的指标（处理None值）
+                n41有效项 = [(k, v) for k, v in 速率影响['n41'].items() if v['相关系数'] is not None]
+                n28有效项 = [(k, v) for k, v in 速率影响['n28'].items() if v['相关系数'] is not None]
+                
+                if n41有效项:
+                    n41最强 = max(n41有效项, key=lambda x: abs(x[1]['相关系数']))
+                    报告.append(f"    → N41与CQI相关性最强: {n41最强[0]} (r={n41最强[1]['相关系数']:.4f}, {n41最强[1]['强度']}相关)")
+                if n28有效项:
+                    n28最强 = max(n28有效项, key=lambda x: abs(x[1]['相关系数']))
+                    报告.append(f"    → N28与CQI相关性最强: {n28最强[0]} (r={n28最强[1]['相关系数']:.4f}, {n28最强[1]['强度']}相关)")
                 报告.append("")
             
             # 2.2 CQI分位数速率趋势
@@ -926,15 +1054,15 @@ def 生成综合报告(分析器: CQI分析器) -> str:
                 报告.append("  3. 不同CQI等级速率分布特征:")
                 if 'n41' in 分布数据:
                     df_n41 = 分布数据['n41']
-                    高CQI = df_n41[df_n41['CQI等级'] == '高CQI(>85%)']
-                    低CQI = df_n41[df_n41['CQI等级'] == '低CQI(<60%)']
+                    高CQI = df_n41[df_n41['CQI等级'] == '高(>85%)']
+                    低CQI = df_n41[df_n41['CQI等级'] == '低(<60%)']
                     if len(高CQI) > 0 and len(低CQI) > 0:
                         倍数 = 高CQI['下行均值'].iloc[0] / 低CQI['下行均值'].iloc[0] if 低CQI['下行均值'].iloc[0] > 0 else 0
                         报告.append(f"    N41: 高CQI vs 低CQI 下行速率比约为 {倍数:.1f}:1")
                 if 'n28' in 分布数据:
                     df_n28 = 分布数据['n28']
-                    高CQI = df_n28[df_n28['CQI等级'] == '高CQI(>85%)']
-                    低CQI = df_n28[df_n28['CQI等级'] == '低CQI(<60%)']
+                    高CQI = df_n28[df_n28['CQI等级'] == '高(>85%)']
+                    低CQI = df_n28[df_n28['CQI等级'] == '低(<60%)']
                     if len(高CQI) > 0 and len(低CQI) > 0:
                         倍数 = 高CQI['下行均值'].iloc[0] / 低CQI['下行均值'].iloc[0] if 低CQI['下行均值'].iloc[0] > 0 else 0
                         报告.append(f"    N28: 高CQI vs 低CQI 下行速率比约为 {倍数:.1f}:1")
@@ -942,65 +1070,73 @@ def 生成综合报告(分析器: CQI分析器) -> str:
     except:
         pass
     
-    # 3. 影响CQI的主要因素
+    # 4. 影响CQI的主要因素
     try:
         影响结果 = 分析器.分析影响CQI的指标_按制式()
-        报告.append("【三、影响CQI的主要因素】")
+        报告.append("【四、影响CQI的主要因素】")
         for 制式 in ['n41', 'n28']:
             if 制式 in 影响结果:
                 有效因素 = [x for x in 影响结果[制式] if x['相关系数'] is not None][:3]
                 if 有效因素:
                     报告.append(f"  {制式.upper()} TOP3:")
                     for i, f in enumerate(有效因素, 1):
-                        报告.append(f"    {i}. {f['指标']}: r={f['相关系数']:.3f} ({f['显著性']})")
+                        报告.append(f"    {i}. {f['指标']}: r={f['相关系数']:.3f} ({f['显著性']}, {f['强度']}相关)")
         报告.append("")
-    except:
-        pass
+    except Exception as e:
+        报告.append(f"  分析失败: {str(e)}")
+        报告.append("")
     
-    # 4. 贡献度分析
+    # 5. 贡献度分析
     try:
         贡献度结果 = 分析器.贡献度分析_按制式()
-        报告.append("【四、指标贡献度排名】")
+        报告.append("【五、指标贡献度排名】")
         for 制式 in ['n41', 'n28']:
             if 制式 in 贡献度结果 and len(贡献度结果[制式]['贡献度列表']) > 0:
                 top3 = 贡献度结果[制式]['贡献度列表'][:3]
                 报告.append(f"  {制式.upper()}:")
                 for i, item in enumerate(top3, 1):
-                    报告.append(f"    {i}. {item['指标']}: {item['贡献度(%)']:.1f}% (累积: {item['累积贡献度(%)']:.1f}%)")
+                    报告.append(f"    {i}. {item['指标']}: 贡献度{item['贡献度(%)']:.1f}% (累积{item['累积贡献度(%)']:.1f}%), r={item['相关系数']:.3f} ({item['显著性']}, {item['相关性强度']}相关)")
         报告.append("")
-    except:
-        pass
+    except Exception as e:
+        报告.append("【五、指标贡献度排名】")
+        报告.append(f"  分析失败: {str(e)}")
+        报告.append("")
     
-    # 5. 覆盖系数分析
+    # 6. 覆盖系数分析
     try:
         覆盖系数统计 = 分析器.覆盖系数统计_按制式()
         if len(覆盖系数统计) > 0:
-            报告.append("【五、覆盖系数分析】")
+            报告.append("【六、覆盖系数分析】")
             for 制式 in ['n41', 'n28']:
                 if 制式 in 覆盖系数统计:
                     数据 = 覆盖系数统计[制式]
-                    越区占比 = 数据['越区覆盖(>0.65)'] / 数据['样本数'] * 100
-                    报告.append(f"  {制式.upper()}: 均值={数据['平均值']:.3f}, 越区覆盖占比={越区占比:.1f}%")
+                    if 数据['样本数'] > 0:
+                        越区占比 = 数据['越区覆盖(>0.65)'] / 数据['样本数'] * 100
+                        报告.append(f"  {制式.upper()}: 均值={数据['平均值']:.3f}, 越区覆盖占比={越区占比:.1f}%")
             报告.append("")
-    except:
-        pass
+    except Exception as e:
+        报告.append("【六、覆盖系数分析】")
+        报告.append(f"  分析失败: {str(e)}")
+        报告.append("")
     
-    # 6. 四象限分析洞察
+    # 7. 四象限分析洞察
     try:
         四象限结果 = 分析器.四象限分析_按制式(-90, 15)
         if len(四象限结果) > 0:
-            报告.append("【六、四象限分析（覆盖×SINR）】")
+            报告.append("【七、四象限分析（覆盖×SINR）】")
             for 制式 in ['n41', 'n28']:
                 if 制式 in 四象限结果 and len(四象限结果[制式]) > 0:
                     # 找出占比最大的象限
                     最大象限 = 四象限结果[制式].loc[四象限结果[制式]['占比(%)'].idxmax()]
                     报告.append(f"  {制式.upper()}: 主要问题区域为'{最大象限['象限']}'，占比{最大象限['占比(%)']:.1f}%，平均CQI={最大象限['平均CQI']:.2f}%")
             报告.append("")
-    except:
-        pass
+    except Exception as e:
+        报告.append("【七、四象限分析（覆盖×SINR）】")
+        报告.append(f"  分析失败: {str(e)}")
+        报告.append("")
     
-    # 7. 优化建议
-    报告.append("【七、优化建议摘要】")
+    # 8. 优化建议
+    报告.append("【八、优化建议摘要】")
     if 'n41' in 统计摘要 and 'n28' in 统计摘要:
         n41 = 统计摘要['n41']
         n28 = 统计摘要['n28']
@@ -1190,33 +1326,65 @@ def 渲染制式对比概览(分析器: CQI分析器):
 
     # CQI分布对比
     st.markdown('<p class="sub-header">📈 CQI优良率分布对比</p>', unsafe_allow_html=True)
+    
+    # 自定义区间：低CQI区间合并，高CQI区间细化
+    # 0-60合并为1个区间，60-70每5%，70-80每2%，80-100每1%
+    区间边界 = [0, 60, 65, 70, 72, 74, 76, 78, 80] + list(range(81, 101))
+    区间标签 = ['<60', '60-65', '65-70', '70-72', '72-74', '74-76', '76-78', '78-80'] + \
+              [f'{i}-{i+1}' for i in range(80, 100)]
 
     col_hist1, col_hist2 = st.columns(2)
 
     分组数据 = 分析器.按网络制式分组()
 
+    def 创建区间分布图(数据, 制式名, 颜色):
+        """创建自定义区间的CQI分布图"""
+        # 使用pd.cut创建区间
+        数据副本 = 数据.copy()
+        数据副本['CQI区间'] = pd.cut(
+            数据副本['CQI优良率'], 
+            bins=区间边界, 
+            labels=区间标签, 
+            right=False,
+            include_lowest=True
+        )
+        
+        # 统计每个区间的数量
+        区间计数 = 数据副本['CQI区间'].value_counts().sort_index()
+        
+        # 创建条形图
+        fig = go.Figure(data=[
+            go.Bar(
+                x=区间计数.index,
+                y=区间计数.values,
+                marker_color=颜色,
+                text=区间计数.values,
+                textposition='outside',
+                textfont=dict(size=8)
+            )
+        ])
+        
+        fig.update_layout(
+            title=f"{制式名} - CQI优良率分布",
+            xaxis_title="CQI优良率区间",
+            yaxis_title="小区数量",
+            template="plotly_white",
+            height=400,
+            bargap=0.1,
+            xaxis_tickangle=-45,
+            showlegend=False
+        )
+        
+        return fig
+
     with col_hist1:
         if 'n41' in 分组数据:
-            fig_n41 = px.histogram(
-                分组数据['n41'],
-                x="CQI优良率",
-                nbins=50,
-                color_discrete_sequence=['#1E90FF'],
-                title="N41 - CQI优良率分布"
-            )
-            fig_n41.update_layout(template="plotly_white", height=400)
+            fig_n41 = 创建区间分布图(分组数据['n41'], "N41", '#1E90FF')
             st.plotly_chart(fig_n41, use_container_width=True)
 
     with col_hist2:
         if 'n28' in 分组数据:
-            fig_n28 = px.histogram(
-                分组数据['n28'],
-                x="CQI优良率",
-                nbins=50,
-                color_discrete_sequence=['#FF6B6B'],
-                title="N28 - CQI优良率分布"
-            )
-            fig_n28.update_layout(template="plotly_white", height=400)
+            fig_n28 = 创建区间分布图(分组数据['n28'], "N28", '#FF6B6B')
             st.plotly_chart(fig_n28, use_container_width=True)
 
     # 分析总结
@@ -1231,24 +1399,26 @@ def 渲染制式对比概览(分析器: CQI分析器):
         下行_diff = n41['平均下行速率'] - n28['平均下行速率']
         上行_diff = n41['平均上行速率'] - n28['平均上行速率']
 
+        整体更优 = 'N41' if cqi_diff > 0 and 下行_diff > 0 and 上行_diff > 0 else ('N28' if cqi_diff < 0 and 下行_diff < 0 and 上行_diff < 0 else '混合')
+
         总结内容 = f"""
         <div class="highlight">
         <b>📊 概览分析总结</b><br><br>
-        <b>1. CQI优良率对比：</b><br>
-        • N41平均CQI优良率为 <b>{n41['平均CQI']:.2f}%</b>，N28为 <b>{n28['平均CQI']:.2f}%</b><br>
-        • 两者差异：<b>{abs(cqi_diff):.2f}%</b>，{'N41优于N28' if cqi_diff > 0 else 'N28优于N41'}<br><br>
 
-        <b>2. 下行速率对比：</b><br>
-        • N41平均下行速率为 <b>{n41['平均下行速率']:.2f} Mbps</b>，N28为 <b>{n28['平均下行速率']:.2f} Mbps</b><br>
-        • 两者差异：<b>{abs(下行_diff):.2f} Mbps</b>，{'N41优于N28' if 下行_diff > 0 else 'N28优于N41'}<br><br>
+        <b>📊 1. 核心发现</b><br>
+        • 整体表现：<b>{'N41全面优于N28' if 整体更优 == 'N41' else ('N28全面优于N41' if 整体更优 == 'N28' else '两种制式各有优劣')}</b><br>
+        • CQI差异：<b>{abs(cqi_diff):.2f}%</b> ({'N41更优' if cqi_diff > 0 else 'N28更优'})<br>
+        • 数据规模：N41共{n41['数据量']:,}条，N28共{n28['数据量']:,}条<br><br>
 
-        <b>3. 上行速率对比：</b><br>
-        • N41平均上行速率为 <b>{n41['平均上行速率']:.2f} Mbps</b>，N28为 <b>{n28['平均上行速率']:.2f} Mbps</b><br>
-        • 两者差异：<b>{abs(上行_diff):.2f} Mbps</b>，{'N41优于N28' if 上行_diff > 0 else 'N28优于N41'}<br><br>
+        <b>📈 2. 数据对比</b><br>
+        • CQI优良率：N41 <b>{n41['平均CQI']:.2f}%</b> vs N28 <b>{n28['平均CQI']:.2f}%</b><br>
+        • 下行速率：N41 <b>{n41['平均下行速率']:.2f} Mbps</b> vs N28 <b>{n28['平均下行速率']:.2f} Mbps</b> (差异{abs(下行_diff):.2f} Mbps)<br>
+        • 上行速率：N41 <b>{n41['平均上行速率']:.2f} Mbps</b> vs N28 <b>{n28['平均上行速率']:.2f} Mbps</b> (差异{abs(上行_diff):.2f} Mbps)<br><br>
 
-        <b>4. 整体评估：</b><br>
-        • {'N41在各项指标上均优于N28，网络性能更优' if cqi_diff > 0 and 下行_diff > 0 and 上行_diff > 0 else 'N28在某些指标上表现更好，需要进一步分析优化'}<br>
-        • N41数据量：{n41['数据量']:,}条，N28数据量：{n28['数据量']:,}条
+        <b>💡 3. 优化建议</b><br>
+        • {'重点优化N28网络，提升整体CQI和速率表现' if 整体更优 == 'N41' else ('重点优化N41网络，追赶N28性能水平' if 整体更优 == 'N28' else '根据具体指标差异，分别制定N41和N28的优化策略')}<br>
+        • 优先关注CQI优良率较低的网络制式，提升用户体验<br>
+        • 结合后续分析页面的详细数据，定位具体优化方向
         </div>
         """
         st.markdown(总结内容, unsafe_allow_html=True)
@@ -1580,11 +1750,16 @@ def 渲染制式对比速率影响(分析器: CQI分析器):
                 n28_sig = 速率影响['n28'][速率]['显著性']
                 总结内容 += f"• {速率}: N41相关系数={n41_r:.4f}({n41_sig}), N28相关系数={n28_r:.4f}({n28_sig})<br>"
         
-        # 找出相关性最强的指标
-        n41最强 = max(速率影响['n41'].items(), key=lambda x: abs(x[1]['相关系数']))
-        n28最强 = max(速率影响['n28'].items(), key=lambda x: abs(x[1]['相关系数']))
-        总结内容 += f"<br>• N41与CQI相关性最强: {n41最强[0]} (r={n41最强[1]['相关系数']:.4f})<br>"
-        总结内容 += f"• N28与CQI相关性最强: {n28最强[0]} (r={n28最强[1]['相关系数']:.4f})<br>"
+        # 找出相关性最强的指标（处理None值）
+        n41有效项 = [(k, v) for k, v in 速率影响['n41'].items() if v['相关系数'] is not None]
+        n28有效项 = [(k, v) for k, v in 速率影响['n28'].items() if v['相关系数'] is not None]
+        
+        if n41有效项:
+            n41最强 = max(n41有效项, key=lambda x: abs(x[1]['相关系数']))
+            总结内容 += f"<br>• N41与CQI相关性最强: {n41最强[0]} (r={n41最强[1]['相关系数']:.4f}, {n41最强[1]['强度']}相关)<br>"
+        if n28有效项:
+            n28最强 = max(n28有效项, key=lambda x: abs(x[1]['相关系数']))
+            总结内容 += f"• N28与CQI相关性最强: {n28最强[0]} (r={n28最强[1]['相关系数']:.4f}, {n28最强[1]['强度']}相关)<br>"
         总结内容 += "<br>"
     
     # 2. CQI分位数速率趋势分析
@@ -1749,17 +1924,26 @@ def 渲染制式对比影响因素(分析器: CQI分析器):
         n41_top3 = [x for x in 影响结果['n41'][:5] if x['相关系数'] is not None][:3]
         n28_top3 = [x for x in 影响结果['n28'][:5] if x['相关系数'] is not None][:3]
 
-        总结内容 += "<b>1. N41网络制式TOP 3影响因素：</b><br>"
+        总结内容 += "<b>📊 1. 核心发现</b><br>"
+        if n41_top3 and n28_top3:
+            n41最强 = n41_top3[0]
+            n28最强 = n28_top3[0]
+            总结内容 += f"• N41最强影响因素：<b>{n41最强['指标']}</b> (r={n41最强['相关系数']:.3f}, {n41最强['强度']}相关)<br>"
+            总结内容 += f"• N28最强影响因素：<b>{n28最强['指标']}</b> (r={n28最强['相关系数']:.3f}, {n28最强['强度']}相关)<br>"
+        总结内容 += "• 相关性|r|>0.7为强相关，0.3-0.7为中等相关，P<0.05为统计显著<br><br>"
+
+        总结内容 += "<b>📈 2. 数据对比</b><br>"
+        总结内容 += "<b>N41 TOP 3影响因素：</b><br>"
         if n41_top3:
             for i, item in enumerate(n41_top3, 1):
-                总结内容 += f"• 第{i}位: {item['指标']} (相关系数={item['相关系数']:.4f}, {item['显著性']})<br>"
+                总结内容 += f"• 第{i}位: {item['指标']} (r={item['相关系数']:.4f}, {item['显著性']}, {item['强度']}相关)<br>"
         else:
             总结内容 += "• 没有足够的有效数据进行分析<br>"
 
-        总结内容 += "<br><b>2. N28网络制式TOP 3影响因素：</b><br>"
+        总结内容 += "<br><b>N28 TOP 3影响因素：</b><br>"
         if n28_top3:
             for i, item in enumerate(n28_top3, 1):
-                总结内容 += f"• 第{i}位: {item['指标']} (相关系数={item['相关系数']:.4f}, {item['显著性']})<br>"
+                总结内容 += f"• 第{i}位: {item['指标']} (r={item['相关系数']:.4f}, {item['显著性']}, {item['强度']}相关)<br>"
         else:
             总结内容 += "• 没有足够的有效数据进行分析<br>"
 
@@ -1768,18 +1952,26 @@ def 渲染制式对比影响因素(分析器: CQI分析器):
         n28_factors = set([item['指标'] for item in 影响结果['n28'][:5] if item['相关系数'] is not None])
         共同因素 = n41_factors & n28_factors
 
-        总结内容 += "<br><b>3. 共同重要因素：</b><br>"
+        总结内容 += "<br><b>共同重要因素：</b><br>"
         if 共同因素:
             for factor in 共同因素:
-                总结内容 += f"• {factor}<br>"
+                # 获取该因素在两个制式中的相关系数
+                n41_corr = next((x['相关系数'] for x in 影响结果['n41'] if x['指标'] == factor), None)
+                n28_corr = next((x['相关系数'] for x in 影响结果['n28'] if x['指标'] == factor), None)
+                if n41_corr and n28_corr:
+                    总结内容 += f"• {factor}: N41(r={n41_corr:.3f}) vs N28(r={n28_corr:.3f})<br>"
+                else:
+                    总结内容 += f"• {factor}<br>"
         else:
             总结内容 += "• 无共同的重要因素，两种制式的优化重点不同<br>"
 
-        总结内容 += "<br><b>4. 优化建议：</b><br>"
+        总结内容 += "<br><b>💡 3. 优化建议</b><br>"
         if n41_top3:
-            总结内容 += f"• N41应重点优化: {n41_top3[0]['指标']}<br>"
+            总结内容 += f"• N41应重点优化<b>{n41_top3[0]['指标']}</b>(贡献度最高，r={n41_top3[0]['相关系数']:.3f})<br>"
         if n28_top3:
-            总结内容 += f"• N28应重点优化: {n28_top3[0]['指标']}<br>"
+            总结内容 += f"• N28应重点优化<b>{n28_top3[0]['指标']}</b>(贡献度最高，r={n28_top3[0]['相关系数']:.3f})<br>"
+        总结内容 += "• 优先处理显著性高(P<0.05)且相关性强的指标<br>"
+        总结内容 += "• 针对共同重要因素，可统一制定优化策略<br>"
         总结内容 += "• 针对不同网络制式制定差异化的CQI优化策略"
 
         总结内容 += "</div>"
@@ -1967,27 +2159,50 @@ def 渲染制式对比相关性矩阵(分析器: CQI分析器):
             cqi_corr_n41 = n41_matrix.loc['CQI优良率'].drop('CQI优良率')
             cqi_corr_n28 = n28_matrix.loc['CQI优良率'].drop('CQI优良率')
 
-            总结内容 += "<b>1. CQI与各指标相关性排序（N41）：</b><br>"
-            n41_sorted = cqi_corr_n41.abs().sort_values(ascending=False)
-            for i, (idx, val) in enumerate(n41_sorted.head(4).items(), 1):
-                总结内容 += f"• 第{i}位: {简短列名.get(idx, idx)} (r={cqi_corr_n41[idx]:.3f})<br>"
+            def 判断强度(r):
+                abs_r = abs(r)
+                if abs_r >= 0.7:
+                    return "强"
+                elif abs_r >= 0.3:
+                    return "中等"
+                elif abs_r >= 0.1:
+                    return "弱"
+                else:
+                    return "极弱"
 
-            总结内容 += "<br><b>2. CQI与各指标相关性排序（N28）：</b><br>"
+            总结内容 += "<b>📊 1. 核心发现</b><br>"
+            n41_sorted = cqi_corr_n41.abs().sort_values(ascending=False)
             n28_sorted = cqi_corr_n28.abs().sort_values(ascending=False)
+            if len(n41_sorted) > 0:
+                n41最强 = n41_sorted.index[0]
+                总结内容 += f"• N41与CQI相关性最强：<b>{简短列名.get(n41最强, n41最强)}</b> (r={cqi_corr_n41[n41最强]:.3f})<br>"
+            if len(n28_sorted) > 0:
+                n28最强 = n28_sorted.index[0]
+                总结内容 += f"• N28与CQI相关性最强：<b>{简短列名.get(n28最强, n28最强)}</b> (r={cqi_corr_n28[n28最强]:.3f})<br>"
+            总结内容 += "• 相关性|r|>0.7为强相关，0.3-0.7为中等相关<br><br>"
+
+            总结内容 += "<b>📈 2. 数据对比</b><br>"
+            总结内容 += "<b>CQI与各指标相关性排序（N41 TOP 4）：</b><br>"
+            for i, (idx, val) in enumerate(n41_sorted.head(4).items(), 1):
+                strength = 判断强度(cqi_corr_n41[idx])
+                总结内容 += f"• 第{i}位: {简短列名.get(idx, idx)} (r={cqi_corr_n41[idx]:.3f}, {strength}相关)<br>"
+
+            总结内容 += "<br><b>CQI与各指标相关性排序（N28 TOP 4）：</b><br>"
             for i, (idx, val) in enumerate(n28_sorted.head(4).items(), 1):
-                总结内容 += f"• 第{i}位: {简短列名.get(idx, idx)} (r={cqi_corr_n28[idx]:.3f})<br>"
+                strength = 判断强度(cqi_corr_n28[idx])
+                总结内容 += f"• 第{i}位: {简短列名.get(idx, idx)} (r={cqi_corr_n28[idx]:.3f}, {strength}相关)<br>"
 
             # 找出相关性差异最大的指标
             diff = (cqi_corr_n41 - cqi_corr_n28).abs()
             if len(diff) > 0:
                 max_diff_idx = diff.idxmax()
-                总结内容 += f"<br><b>3. 相关性差异最大的指标：</b><br>"
+                总结内容 += f"<br><b>相关性差异最大的指标：</b><br>"
                 总结内容 += f"• {简短列名.get(max_diff_idx, max_diff_idx)}: N41(r={cqi_corr_n41[max_diff_idx]:.3f}) vs N28(r={cqi_corr_n28[max_diff_idx]:.3f})<br>"
 
-        总结内容 += "<br><b>4. 关键发现：</b><br>"
-        总结内容 += "• 从热力图可直观看出各指标间的相关性强度<br>"
-        总结内容 += "• 深色区域表示强正相关，浅色区域表示弱相关或负相关<br>"
-        总结内容 += "• 对角线始终为1（自身相关性）"
+        总结内容 += "<br><b>💡 3. 优化建议</b><br>"
+        总结内容 += "• 优先优化与CQI强相关的指标（|r|>0.7），效果最显著<br>"
+        总结内容 += "• 从热力图识别指标簇，避免重复优化高度相关的指标<br>"
+        总结内容 += "• 关注N41和N28相关性差异大的指标，制定差异化策略"
 
         总结内容 += "</div>"
         st.markdown(总结内容, unsafe_allow_html=True)
@@ -2292,35 +2507,45 @@ def 渲染制式对比贡献度分析(分析器: CQI分析器):
         
         总结内容 = "<div class='highlight'><b>📊 贡献度分析总结</b><br><br>"
 
+        总结内容 += "<b>📊 1. 核心发现</b><br>"
         if n41有数据:
-            总结内容 += "<b>1. N41网络制式贡献度排名：</b><br>"
+            n41_top1 = 贡献度df_n41.iloc[0]
+            总结内容 += f"• N41最大贡献指标：<b>{n41_top1['指标']}</b> (贡献度{n41_top1['贡献度(%)']:.2f}%)<br>"
+        if n28有数据:
+            n28_top1 = 贡献度df_n28.iloc[0]
+            总结内容 += f"• N28最大贡献指标：<b>{n28_top1['指标']}</b> (贡献度{n28_top1['贡献度(%)']:.2f}%)<br>"
+        总结内容 += "• 贡献度基于相关系数归一化计算，所有指标贡献度之和=100%<br><br>"
+
+        总结内容 += "<b>📈 2. 数据对比</b><br>"
+        if n41有数据:
+            总结内容 += "<b>N41网络制式贡献度排名（TOP 5）：</b><br>"
             for i, row in 贡献度df_n41.head(5).iterrows():
-                总结内容 += f"• {row['指标']}: {row['贡献度(%)']:.2f}% (累积: {row['累积贡献度(%)']:.2f}%)<br>"
+                总结内容 += f"• 第{i+1}位: {row['指标']}: {row['贡献度(%)']:.2f}% (累积{row['累积贡献度(%)']:.2f}%)<br>"
         else:
-            总结内容 += "<b>1. N41网络制式：</b><br>• 无有效的贡献度数据<br>"
+            总结内容 += "<b>N41网络制式：</b><br>• 无有效的贡献度数据<br>"
 
         if n28有数据:
-            总结内容 += "<br><b>2. N28网络制式贡献度排名：</b><br>"
+            总结内容 += "<br><b>N28网络制式贡献度排名（TOP 5）：</b><br>"
             for i, row in 贡献度df_n28.head(5).iterrows():
-                总结内容 += f"• {row['指标']}: {row['贡献度(%)']:.2f}% (累积: {row['累积贡献度(%)']:.2f}%)<br>"
+                总结内容 += f"• 第{i+1}位: {row['指标']}: {row['贡献度(%)']:.2f}% (累积{row['累积贡献度(%)']:.2f}%)<br>"
         else:
-            总结内容 += "<br><b>2. N28网络制式：</b><br>• 无有效的贡献度数据<br>"
+            总结内容 += "<br><b>N28网络制式：</b><br>• 无有效的贡献度数据<br>"
 
-        # 找出主要贡献因素
+        # 累积贡献度对比
         if n41有数据 and n28有数据:
-            n41_top1 = 贡献度df_n41.iloc[0]['指标']
-            n28_top1 = 贡献度df_n28.iloc[0]['指标']
+            n41_top3_累积 = 贡献度df_n41.head(3)['贡献度(%)'].sum()
+            n28_top3_累积 = 贡献度df_n28.head(3)['贡献度(%)'].sum()
+            总结内容 += f"<br><b>帕累托分析：</b><br>"
+            总结内容 += f"• N41前3个指标累积贡献度: {n41_top3_累积:.2f}%<br>"
+            总结内容 += f"• N28前3个指标累积贡献度: {n28_top3_累积:.2f}%<br>"
 
-            总结内容 += "<br><b>3. 主要贡献因素：</b><br>"
-            总结内容 += f"• N41: {n41_top1}贡献最大，占比{贡献度df_n41.iloc[0]['贡献度(%)']:.2f}%<br>"
-            总结内容 += f"• N28: {n28_top1}贡献最大，占比{贡献度df_n28.iloc[0]['贡献度(%)']:.2f}%<br>"
-
-            总结内容 += "<br><b>4. 优化建议：</b><br>"
-            总结内容 += f"• N41应优先优化{n41_top1}指标<br>"
-            总结内容 += f"• N28应优先优化{n28_top1}指标<br>"
-            总结内容 += "• 集中资源优化贡献度最高的指标可获得最大性能提升<br>"
-            总结内容 += f"• N41前3个指标累积贡献度: {贡献度df_n41.head(3)['贡献度(%)'].sum():.2f}%<br>"
-            总结内容 += f"• N28前3个指标累积贡献度: {贡献度df_n28.head(3)['贡献度(%)'].sum():.2f}%"
+        总结内容 += "<br><b>💡 3. 优化建议</b><br>"
+        if n41有数据:
+            总结内容 += f"• N41应优先优化<b>{贡献度df_n41.iloc[0]['指标']}</b>指标（贡献度最高）<br>"
+        if n28有数据:
+            总结内容 += f"• N28应优先优化<b>{贡献度df_n28.iloc[0]['指标']}</b>指标（贡献度最高）<br>"
+        总结内容 += "• 集中资源优化贡献度最高的指标可获得最大性能提升<br>"
+        总结内容 += "• 关注累积贡献度达到80%的关键指标（帕累托法则）"
         
         总结内容 += "</div>"
         st.markdown(总结内容, unsafe_allow_html=True)
@@ -2793,39 +3018,38 @@ def 渲染制式对比分组分析(分析器: CQI分析器):
         n41_best_group = n41_cqi_groups[-1] if n41_cqi_groups else "无"
         n28_best_group = n28_cqi_groups[-1] if n28_cqi_groups else "无"
 
-        总结内容 += "<b>1. CQI分组概况：</b><br>"
-        总结内容 += f"• N41共有{len(n41_cqi_groups)}个分组: {', '.join(n41_cqi_groups)}<br>"
-        总结内容 += f"• N28共有{len(n28_cqi_groups)}个分组: {', '.join(n28_cqi_groups)}<br>"
+        总结内容 += "<b>📊 1. 核心发现</b><br>"
+        总结内容 += f"• N41按CQI分为{len(n41_cqi_groups)}个分组，最优分组为<b>{n41_best_group}</b><br>"
+        总结内容 += f"• N28按CQI分为{len(n28_cqi_groups)}个分组，最优分组为<b>{n28_best_group}</b><br>"
+        总结内容 += f"• 分组详情: {', '.join(n41_cqi_groups)}<br><br>"
+
+        总结内容 += "<b>📈 2. 数据对比</b><br>"
 
         # 下行速率分析
         if '下行用户平均速率(MBPS)' in 分组分析['n41'].columns.get_level_values(0):
             n41下行 = 分组分析['n41']['下行用户平均速率(MBPS)']['mean'].values
             n28下行 = 分组分析['n28']['下行用户平均速率(MBPS)']['mean'].values
-
             n41_max_rate = max(n41下行)
             n28_max_rate = max(n28下行)
             n41_min_rate = min(n41下行)
             n28_min_rate = min(n28下行)
-
-            总结内容 += "<br><b>2. 下行速率分析：</b><br>"
-            总结内容 += f"• N41速率范围: {n41_min_rate:.2f} ~ {n41_max_rate:.2f} Mbps (跨度: {n41_max_rate - n41_min_rate:.2f} Mbps)<br>"
-            总结内容 += f"• N28速率范围: {n28_min_rate:.2f} ~ {n28_max_rate:.2f} Mbps (跨度: {n28_max_rate - n28_min_rate:.2f} Mbps)<br>"
+            总结内容 += f"<b>下行速率分析：</b><br>"
+            总结内容 += f"• N41: {n41_min_rate:.2f} ~ {n41_max_rate:.2f} Mbps (跨度{n41_max_rate - n41_min_rate:.2f} Mbps)<br>"
+            总结内容 += f"• N28: {n28_min_rate:.2f} ~ {n28_max_rate:.2f} Mbps (跨度{n28_max_rate - n28_min_rate:.2f} Mbps)<br>"
 
         # 覆盖电平分析
         if '小区MR覆盖平均电平' in 分组分析['n41'].columns.get_level_values(0):
             n41_rsrp = 分组分析['n41']['小区MR覆盖平均电平']['mean'].values
             n28_rsrp = 分组分析['n28']['小区MR覆盖平均电平']['mean'].values
-
-            总结内容 += "<br><b>3. 覆盖电平分析：</b><br>"
-            总结内容 += f"• N41覆盖电平随CQI分组递增而{'改善' if n41_rsrp[-1] > n41_rsrp[0] else '下降'}<br>"
-            总结内容 += f"• N28覆盖电平随CQI分组递增而{'改善' if n28_rsrp[-1] > n28_rsrp[0] else '下降'}<br>"
+            总结内容 += f"<br><b>覆盖电平分析：</b><br>"
+            总结内容 += f"• N41随CQI递增{'改善' if n41_rsrp[-1] > n41_rsrp[0] else '下降'} ({n41_rsrp[0]:.2f} → {n41_rsrp[-1]:.2f} dBm)<br>"
+            总结内容 += f"• N28随CQI递增{'改善' if n28_rsrp[-1] > n28_rsrp[0] else '下降'} ({n28_rsrp[0]:.2f} → {n28_rsrp[-1]:.2f} dBm)<br>"
 
         # SINR分析
         if '小区MR覆盖平均SINR' in 分组分析['n41'].columns.get_level_values(0):
             n41_sinr = 分组分析['n41']['小区MR覆盖平均SINR']['mean'].values
             n28_sinr = 分组分析['n28']['小区MR覆盖平均SINR']['mean'].values
-
-            总结内容 += "<br><b>4. SINR分析：</b><br>"
+            总结内容 += f"<br><b>SINR分析：</b><br>"
             总结内容 += f"• N41最优CQI分组SINR均值: {n41_sinr[-1]:.2f} dB<br>"
             总结内容 += f"• N28最优CQI分组SINR均值: {n28_sinr[-1]:.2f} dB<br>"
 
@@ -2833,45 +3057,33 @@ def 渲染制式对比分组分析(分析器: CQI分析器):
         if '覆盖系数' in 分组分析['n41'].columns.get_level_values(0):
             n41_coef = 分组分析['n41']['覆盖系数']['mean'].values
             n28_coef = 分组分析['n28']['覆盖系数']['mean'].values
-
-            总结内容 += "<br><b>5. 覆盖系数分析：</b><br>"
-            总结内容 += f"• N41覆盖系数范围: {min(n41_coef):.3f} ~ {max(n41_coef):.3f}<br>"
-            总结内容 += f"• N28覆盖系数范围: {min(n28_coef):.3f} ~ {max(n28_coef):.3f}<br>"
-            # 判断是否有越区覆盖问题
+            总结内容 += f"<br><b>覆盖系数分析：</b><br>"
+            总结内容 += f"• N41范围: {min(n41_coef):.3f} ~ {max(n41_coef):.3f}<br>"
+            总结内容 += f"• N28范围: {min(n28_coef):.3f} ~ {max(n28_coef):.3f}<br>"
             n41_越区 = any(v > 1.0 for v in n41_coef)
             n28_越区 = any(v > 1.0 for v in n28_coef)
             if n41_越区 or n28_越区:
-                总结内容 += f"• {'N41存在' if n41_越区 else ''}{'、' if n41_越区 and n28_越区 else ''}{'N28存在' if n28_越区 else ''}越区覆盖风险（覆盖系数>1.0）<br>"
+                总结内容 += f"• {'⚠️ N41存在' if n41_越区 else ''}{'、' if n41_越区 and n28_越区 else ''}{'⚠️ N28存在' if n28_越区 else ''}越区覆盖风险（覆盖系数>1.0）<br>"
 
         # 重叠覆盖采样点比例分析
         if '重叠覆盖采样点比例(%)' in 分组分析['n41'].columns.get_level_values(0):
             n41_overlap = 分组分析['n41']['重叠覆盖采样点比例(%)']['mean'].values
             n28_overlap = 分组分析['n28']['重叠覆盖采样点比例(%)']['mean'].values
-
-            总结内容 += "<br><b>6. 重叠覆盖分析：</b><br>"
-            总结内容 += f"• N41重叠覆盖比例范围: {min(n41_overlap):.2f}% ~ {max(n41_overlap):.2f}%<br>"
-            总结内容 += f"• N28重叠覆盖比例范围: {min(n28_overlap):.2f}% ~ {max(n28_overlap):.2f}%<br>"
+            总结内容 += f"<br><b>重叠覆盖分析：</b><br>"
+            总结内容 += f"• N41重叠覆盖比例: {min(n41_overlap):.2f}% ~ {max(n41_overlap):.2f}%<br>"
+            总结内容 += f"• N28重叠覆盖比例: {min(n28_overlap):.2f}% ~ {max(n28_overlap):.2f}%<br>"
             # 判断是否有严重的重叠覆盖问题
             n41_高重叠 = any(v > 30 for v in n41_overlap)
             n28_高重叠 = any(v > 30 for v in n28_overlap)
             if n41_高重叠 or n28_高重叠:
-                总结内容 += f"• {'注意：N41' if n41_高重叠 else ''}{'、' if n41_高重叠 and n28_高重叠 else ''}{'N28' if n28_高重叠 else ''}存在较严重的重叠覆盖问题（比例>30%），可能导致干扰<br>"
+                总结内容 += f"• {'⚠️ N41' if n41_高重叠 else ''}{'、' if n41_高重叠 and n28_高重叠 else ''}{'⚠️ N28' if n28_高重叠 else ''}存在严重重叠覆盖（>30%），可能导致干扰<br>"
 
-        总结内容 += "<br><b>7. 关键发现：</b><br>"
-        总结内容 += "• CQI优良率与各项性能指标呈现明显的正相关趋势<br>"
-        总结内容 += "• 随着CQI分组等级提高，下行速率和SINR通常会提升<br>"
-        总结内容 += "• 高CQI分组小区的各项指标普遍优于低CQI分组小区<br>"
+        总结内容 += "<br><b>💡 3. 优化建议</b><br>"
+        总结内容 += "• 重点关注低CQI分组的性能瓶颈，实施针对性优化<br>"
+        总结内容 += "• 提升CQI优良率可有效改善用户体验和下行速率<br>"
+        总结内容 += "• 针对不同CQI等级制定差异化的网络优化策略<br>"
         if '覆盖系数' in 分组分析['n41'].columns.get_level_values(0):
-            总结内容 += "• 覆盖系数可反映小区覆盖范围是否合理，过高可能导致越区干扰<br>"
-        if '重叠覆盖采样点比例(%)' in 分组分析['n41'].columns.get_level_values(0):
-            总结内容 += "• 重叠覆盖采样点比例高说明邻区干扰严重，会影响CQI和SINR<br>"
-
-        总结内容 += "<br><b>8. 优化建议：</b><br>"
-        总结内容 += "• 关注低CQI分组小区的性能瓶颈<br>"
-        总结内容 += "• 提升CQI优良率可有效改善用户体验<br>"
-        总结内容 += "• 针对不同CQI等级制定差异化的优化策略<br>"
-        if '覆盖系数' in 分组分析['n41'].columns.get_level_values(0):
-            总结内容 += "• 检查覆盖系数>1.0的小区，考虑调整天线下倾角或功率控制越区覆盖<br>"
+            总结内容 += "• 检查覆盖系数>1.0的小区，调整天线下倾角或功率控制越区覆盖<br>"
         if '重叠覆盖采样点比例(%)' in 分组分析['n41'].columns.get_level_values(0):
             总结内容 += "• 优化重叠覆盖严重区域的频率规划和邻区关系，降低干扰<br>"
 
@@ -3153,23 +3365,25 @@ def 渲染制式对比多维度交叉分析(分析器: CQI分析器):
 
     st.markdown("""
     <div class="highlight">
-    <b>🔄 多维度交叉分析洞察：</b><br><br>
+    <b>📊 多维度交叉分析洞察</b><br><br>
 
-    <b>1. 三维关系洞察：</b><br>
-    • 通过覆盖×SINR×CQI的三维分析，可以识别出网络质量的关键瓶颈<br>
-    • 颜色深浅代表CQI水平，气泡大小代表下行速率<br><br>
+    <b>📊 1. 核心发现</b><br>
+    • 通过覆盖×SINR×CQI三维分析识别网络质量关键瓶颈<br>
+    • 四象限分析精准定位问题区域，量化各类问题占比<br><br>
 
-    <b>2. 四象限分析应用：</b><br>
-    • 象限1(好覆盖+好SINR)：网络质量优良，可作为标杆<br>
-    • 象限2(好覆盖+差SINR)：存在干扰问题，需优化干扰<br>
-    • 象限3(差覆盖+好SINR)：覆盖不足，需增强覆盖<br>
-    • 象限4(差覆盖+差SINR)：综合问题，需全面优化<br><br>
+    <b>📈 2. 数据对比</b><br>
+    <b>四象限分布含义：</b><br>
+    • 象限1(好覆盖+好SINR)：网络质量优良，可作为标杆区域<br>
+    • 象限2(好覆盖+差SINR)：存在干扰问题，需重点优化干扰<br>
+    • 象限3(差覆盖+好SINR)：覆盖不足，需增强覆盖能力<br>
+    • 象限4(差覆盖+差SINR)：综合问题严重，需全面优化<br><br>
 
-    <b>3. 根因分析指导：</b><br>
-    • 通过量化各类问题的占比，明确优化优先级<br>
-    • 针对主要根因制定专项优化方案，提高优化效率<br><br>
+    <b>💡 3. 优化建议</b><br>
+    • 优先处理占比最大的问题象限，集中资源提升整体CQI<br>
+    • 通过根因量化分析，制定针对性的专项优化方案<br>
+    • 结合覆盖系数分析，优先处理'差覆盖+过远覆盖'小区<br><br>
 
-    <b>💡 提示：</b> TA分层分析和条件分组分析已合并到「📏 距离覆盖分析」标签页
+    <b>📝 提示：</b> TA分层分析和条件分组分析已合并到「📏 距离覆盖分析」标签页
     </div>
     """, unsafe_allow_html=True)
 
@@ -3243,8 +3457,6 @@ def 渲染制式对比距离覆盖分析(分析器: CQI分析器):
     with col_hist1:
         if 'n41' in 覆盖系数统计:
             数据 = 覆盖系数统计['n41']['覆盖系数数据']
-            import plotly.graph_objects as go
-            import numpy as np
             
             # 创建自定义区间：0-0.5细分(步长0.05)，0.5-2.0适度细分(步长0.1)，>2.0合并为一个区间
             区间边界 = list(np.arange(0, 0.5, 0.05)) + list(np.arange(0.5, 2.0, 0.1)) + [float('inf')]
@@ -3288,8 +3500,6 @@ def 渲染制式对比距离覆盖分析(分析器: CQI分析器):
     with col_hist2:
         if 'n28' in 覆盖系数统计:
             数据 = 覆盖系数统计['n28']['覆盖系数数据']
-            import plotly.graph_objects as go
-            import numpy as np
             
             # 创建自定义区间：0-0.5细分(步长0.05)，0.5-2.0适度细分(步长0.1)，>2.0合并为一个区间
             区间边界 = list(np.arange(0, 0.5, 0.05)) + list(np.arange(0.5, 2.0, 0.1)) + [float('inf')]
@@ -3390,9 +3600,6 @@ def 渲染制式对比距离覆盖分析(分析器: CQI分析器):
             st.dataframe(分层结果['n41'], use_container_width=True)
             
             # 双轴图：CQI和速率随覆盖系数档位变化
-            from plotly.subplots import make_subplots
-            import plotly.graph_objects as go
-            
             fig = make_subplots(rows=1, cols=2, subplot_titles=('CQI随覆盖系数变化', '速率随覆盖系数变化'))
             fig.add_trace(
                 go.Bar(x=分层结果['n41']['档位'], y=分层结果['n41']['平均CQI'], 
@@ -3416,9 +3623,6 @@ def 渲染制式对比距离覆盖分析(分析器: CQI分析器):
             st.dataframe(分层结果['n28'], use_container_width=True)
             
             # 双轴图：CQI和速率随覆盖系数档位变化
-            from plotly.subplots import make_subplots
-            import plotly.graph_objects as go
-            
             fig = make_subplots(rows=1, cols=2, subplot_titles=('CQI随覆盖系数变化', '速率随覆盖系数变化'))
             fig.add_trace(
                 go.Bar(x=分层结果['n28']['档位'], y=分层结果['n28']['平均CQI'], 
@@ -3486,24 +3690,35 @@ def 渲染制式对比距离覆盖分析(分析器: CQI分析器):
     if len(覆盖系数统计) > 0:
         总结内容 = "<div class='highlight'><b>📊 覆盖系数分析洞察</b><br><br>"
         
-        总结内容 += "<b>1. 覆盖系数统计摘要：</b><br>"
+        总结内容 += "<b>📊 1. 核心发现</b><br>"
         for 制式, 数据 in 覆盖系数统计.items():
             越区占比 = 数据['越区覆盖(>0.65)'] / 数据['样本数'] * 100
-            总结内容 += f"• <b>{制式.upper()}</b>: 均值={数据['平均值']:.3f}, 中位数={数据['中位数']:.3f}, 越区覆盖占比={越区占比:.1f}%<br>"
+            总结内容 += f"• <b>{制式.upper()}</b>: 均值={数据['平均值']:.3f}, 中位数={数据['中位数']:.3f}<br>"
+            总结内容 += f"  越区覆盖占比={越区占比:.1f}% (覆盖系数>0.65)<br>"
         
         if len(覆盖系数相关性) > 0:
-            总结内容 += "<br><b>2. 覆盖系数与CQI关系：</b><br>"
+            总结内容 += f"<br>• 覆盖系数与CQI关系分析：<br>"
             for 制式, 列表 in 覆盖系数相关性.items():
                 if len(列表) > 0:
                     cqi_corr = next((x for x in 列表 if x['指标'] == 'CQI优良率'), None)
                     if cqi_corr:
                         方向 = "负相关" if cqi_corr['相关系数'] < 0 else "正相关"
-                        总结内容 += f"• <b>{制式.upper()}</b>: 覆盖系数与CQI呈{cqi_corr['强度']}{方向}(r={cqi_corr['相关系数']:.3f})<br>"
+                        总结内容 += f"  {制式.upper()}: 呈{cqi_corr['强度']}{方向}(r={cqi_corr['相关系数']:.3f})<br>"
+        总结内容 += "<br>"
         
-        总结内容 += "<br><b>3. 优化建议：</b><br>"
-        总结内容 += "• 关注覆盖系数>0.65的越区覆盖小区，可能需要调整下倾角或功率<br>"
-        总结内容 += "• 覆盖系数<0.3的小区可能存在覆盖不足，建议检查天线方位角<br>"
-        总结内容 += "• 覆盖系数在0.3~0.65范围内的网络质量通常较好，可作为标杆<br>"
+        总结内容 += "<b>📈 2. 数据对比</b><br>"
+        for 制式, 数据 in 覆盖系数统计.items():
+            越区占比 = 数据['越区覆盖(>0.65)'] / 数据['样本数'] * 100
+            覆盖较近占比 = 数据['覆盖较近(<0.3)'] / 数据['样本数'] * 100
+            覆盖适中占比 = 数据['覆盖适中(0.3-0.65)'] / 数据['样本数'] * 100
+            总结内容 += f"<b>{制式.upper()}覆盖分布：</b><br>"
+            总结内容 += f"• 覆盖较近(<0.3): {覆盖较近占比:.1f}% | 覆盖适中(0.3-0.65): {覆盖适中占比:.1f}% | 越区覆盖(>0.65): {越区占比:.1f}%<br>"
+        总结内容 += "<br>"
+        
+        总结内容 += "<b>💡 3. 优化建议</b><br>"
+        总结内容 += "• 覆盖系数>0.65: 可能存在越区覆盖，建议调整下倾角或功率<br>"
+        总结内容 += "• 覆盖系数<0.3: 可能存在覆盖不足，建议检查天线方位角或增加站点<br>"
+        总结内容 += "• 覆盖系数0.3~0.65: 覆盖范围合理，可作为网络质量标杆<br>"
         总结内容 += "• 结合四象限分析，优先处理'差覆盖+过远覆盖距离'的小区"
         
         总结内容 += "</div>"
@@ -3699,30 +3914,24 @@ def 渲染制式对比数据导出(分析器: CQI分析器):
 
     总结内容 = "<div class='highlight'><b>📊 数据导出说明</b><br><br>"
 
-    总结内容 += "<b>1. 可导出数据类型：</b><br>"
-    总结内容 += "• <b>N41原始数据</b>：包含N41网络制式所有小区的详细数据<br>"
-    总结内容 += "• <b>N28原始数据</b>：包含N28网络制式所有小区的详细数据<br>"
-    总结内容 += "• <b>统计摘要</b>：N41和N28的汇总统计信息<br>"
+    总结内容 += "<b>📊 1. 核心功能</b><br>"
+    总结内容 += "• 导出完整分析报告（20个工作表，含所有分析维度）<br>"
+    总结内容 += "• 支持N41和N28制式单独导出或合并导出<br>"
+    总结内容 += "• Excel格式便于后续定制化分析和报告制作<br><br>"
 
     if 'n41' in 分组数据 and 'n28' in 分组数据:
         n41_count = len(分组数据['n41'])
         n28_count = len(分组数据['n28'])
         total_count = n41_count + n28_count
+        总结内容 += "<b>📈 2. 数据量统计</b><br>"
+        总结内容 += f"• N41数据量: {n41_count:,} 条 (占比{n41_count/total_count*100:.1f}%)<br>"
+        总结内容 += f"• N28数据量: {n28_count:,} 条 (占比{n28_count/total_count*100:.1f}%)<br>"
+        总结内容 += f"• <b>总数据量: {total_count:,} 条</b><br><br>"
 
-        总结内容 += "<br><b>2. 数据量统计：</b><br>"
-        总结内容 += f"• N41数据量: {n41_count:,} 条 ({n41_count/total_count*100:.1f}%)<br>"
-        总结内容 += f"• N28数据量: {n28_count:,} 条 ({n28_count/total_count*100:.1f}%)<br>"
-        总结内容 += f"• 总数据量: {total_count:,} 条<br>"
-
-    总结内容 += "<br><b>3. 导出文件说明：</b><br>"
-    总结内容 += "• <b>N41_CQI分析数据.xlsx</b>：仅包含N41网络制式的分析数据<br>"
-    总结内容 += "• <b>N28_CQI分析数据.xlsx</b>：仅包含N28网络制式的分析数据<br>"
-    总结内容 += "• <b>CQI分析完整报告_N41vsN28.xlsx</b>：包含两个制式的完整分析报告<br>"
-
-    总结内容 += "<br><b>4. 使用建议：</b><br>"
-    总结内容 += "• 如需单独分析某一制式，请下载对应的单独数据文件<br>"
-    总结内容 += "• 如需整体对比分析，请下载完整报告<br>"
-    总结内容 += "• 导出的Excel文件可直接用于后续的定制化分析或报告制作"
+    总结内容 += "<b>💡 3. 使用建议</b><br>"
+    总结内容 += "• 单独分析某一制式：下载对应的单独数据文件<br>"
+    总结内容 += "• 整体对比分析：下载包含两个制式的完整报告<br>"
+    总结内容 += "• 报告包含原始数据、统计摘要、各项分析结果和图表数据"
 
     总结内容 += "</div>"
     st.markdown(总结内容, unsafe_allow_html=True)
@@ -3730,7 +3939,20 @@ def 渲染制式对比数据导出(分析器: CQI分析器):
 
 def main():
     """主函数"""
-    st.markdown('<p class="main-header">📡 5G CQI关联性能分析系统<br><small>网络制式对比版 (N41 vs N28)</small></p>', unsafe_allow_html=True)
+    # 设计精美的页面头部
+    header_html = """
+    <div class="header-container">
+        <h1 class="header-title">📡 5G CQI关联性能分析系统</h1>
+        <p class="header-subtitle">网络制式对比版 • 深度洞察 • 智能诊断</p>
+        <div class="header-badges">
+            <span class="badge">📊 全方位分析</span>
+            <span class="badge badge-n41">📡 N41制式</span>
+            <span class="badge badge-n28">📡 N28制式</span>
+            <span class="badge">⚡ 实时洞察</span>
+        </div>
+    </div>
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
 
     st.markdown("---")
 
